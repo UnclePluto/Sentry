@@ -41,7 +41,7 @@ docker login --username=dypluto crpi-vu9eu0iguupfgpzi.cn-guangzhou.personal.cr.a
 
 `SENTRY_IMAGE` 必须填写已推送的固定版本。容器以 uid 1000 运行，数据库绑定到 `/opt/sentry/data`，重建容器不删除数据。首次启动自动生成服务器独立的超级管理员，凭据位于 `/opt/sentry/data/initial-admin.json`，通过 SSH 在服务器上读取。没有将本机超管密码打包到镜像。
 
-前台映射服务器 80 端口；后台只监听宿主机 `127.0.0.1:3002`。通过本机 SSH 隧道访问后台：
+当前前台域名为 `https://sentry.floatnoise.com`，Nginx 监听 80/443，HTTP 自动跳转 HTTPS。应用前台只监听宿主机 `127.0.0.1:13000`；后台只监听宿主机 `127.0.0.1:3002`。通过本机 SSH 隧道访问后台：
 
 ```sh
 ssh -N -L 13002:127.0.0.1:3002 -i ~/.ssh/id_ed25519 root@47.122.114.59
@@ -49,7 +49,19 @@ ssh -N -L 13002:127.0.0.1:3002 -i ~/.ssh/id_ed25519 root@47.122.114.59
 
 随后打开 `http://127.0.0.1:13002`。API 3001 和内部渲染 3010 不发布到宿主机。若后续配置域名及 HTTPS，反向代理后台到服务器回环端口，并同时更新 `SENTRY_TRUSTED_ORIGINS` 和 `SENTRY_SECURE_COOKIE`。
 
-前台公网访问还需要 ECS 安全组放行 TCP 80；无需放行后台 3002。演示数据默认开启且明确标识；设置 `SENTRY_NO_DEMO=1` 可禁止首次生成演示数据，但不会删除已经生成的数据。
+前台公网访问需要 ECS 安全组放行 TCP 80 和 443；无需放行后台 3002 或应用端口 13000。演示数据默认开启且明确标识；设置 `SENTRY_NO_DEMO=1` 可禁止首次生成演示数据，但不会删除已经生成的数据。
+
+## 域名与 HTTPS
+
+DNS 的 `sentry.floatnoise.com` A 记录指向 `47.122.114.59`。服务器 `.env` 设置 `SENTRY_DASHBOARD_BIND=127.0.0.1`、`SENTRY_DASHBOARD_PORT=13000` 后运行 `docker compose up -d --wait`。
+
+安装 `nginx certbot python3-certbot-nginx`，将 `nginx.conf` 放入 `/etc/nginx/sites-available/sentry` 并链接到 `sites-enabled/sentry`，禁用默认站点，执行 `nginx -t` 后启动 Nginx。首次签发使用：
+
+```sh
+certbot --nginx -d sentry.floatnoise.com --non-interactive --agree-tos --register-unsafely-without-email --redirect
+```
+
+Certbot 会在服务器配置中补充证书及 HTTPS 跳转；仓库的 `nginx.conf` 仅用于首次引导，不要覆盖已经生成的 HTTPS 配置。证书和私钥保留在服务器 `/etc/letsencrypt`，通过 `certbot.timer` 自动续期。可执行 `certbot renew --dry-run` 检查续期。后台继续通过 SSH 隧道访问，无需改变后台 Cookie 或信任来源配置。
 
 ## 更新、备份与回退
 
