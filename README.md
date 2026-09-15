@@ -111,3 +111,9 @@ WebMCP 提供只读的 `read_surveillance_summary` 工具（浏览器支持时�
 静态检查排除未修改的 shadcn 组件目录。React Compiler 的同步 effect 提示作为建议警告（本项目未启用 React Compiler）；业务代码保留类型检查、可访问性及正确性规则。
 
 启动生产版本后运行 `npm run test:smoke`，检查页面、API 及地图下钻接口。该回归检查覆盖生产转发响应头必须可修改的框架约束。
+
+## Git 与阿里云部署
+
+代码仓库：<https://github.com/UnclePluto/Sentry>，主分支 `main`。容器镜像推送至阿里云 ACR，再由 ECS Docker Compose 拉取运行，详见 [部署说明](deploy/README.md)。
+
+本机可使用 `ssh sentry-ecs` 连接服务器。GitHub main 推送运行检查与构建；发布 ACR 镜像需手动运行工作流并配置 ACR 专用凭据，服务器登录密码及 SSH 私钥不进入仓库。

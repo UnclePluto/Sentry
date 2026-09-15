@@ -13,5 +13,8 @@ export default defineConfig({
     },
     proxy: { '/api': 'http://127.0.0.1:3001' },
   },
-  plugins: [vinext(), sites()],
+  plugins: [
+    vinext(),
+    ...(process.env.SENTRY_CONTAINER_BUILD === '1' ? [] : [sites()]),
+  ],
 });

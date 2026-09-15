@@ -168,6 +168,7 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   const development = !process.argv.includes('--production');
+  const host = process.env.SENTRY_GATEWAY_HOST || '127.0.0.1';
   for (const [mode, port] of [
     ['dashboard', 3000],
     ['admin', 3002],
@@ -177,9 +178,9 @@ if (
       console.error(error.message);
       process.exit(1);
     });
-    server.listen(port, '127.0.0.1', () =>
+    server.listen(port, host, () =>
       console.log(
-        `${mode === 'dashboard' ? '监测大屏' : '数据管理'}：http://127.0.0.1:${port}`,
+        `${mode === 'dashboard' ? '监测大屏' : '数据管理'}：http://${host}:${port}`,
       ),
     );
   }

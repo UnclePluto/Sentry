@@ -1,0 +1,29 @@
+name: sentry
+services:
+  app:
+    image: ${SENTRY_IMAGE:?请设置完整的 ACR 镜像地址与版本}
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    ports:
+      - "${SENTRY_DASHBOARD_BIND:-0.0.0.0}:${SENTRY_DASHBOARD_PORT:-80}:3000"
+      - "127.0.0.1:${SENTRY_ADMIN_PORT:-3002}:3002"
+    environment:
+      TZ: Asia/Shanghai
+      SENTRY_GATEWAY_HOST: 0.0.0.0
+      SENTRY_DATA_DIR: /app/data
+      SENTRY_NO_DEMO: ${SENTRY_NO_DEMO:-0}
+      SENTRY_TRUSTED_ORIGINS: ${SENTRY_TRUSTED_ORIGINS:-http://127.0.0.1:13002,http://localhost:13002}
+      SENTRY_SECURE_COOKIE: ${SENTRY_SECURE_COOKIE:-0}
+    volumes:
+      - ${SENTRY_DATA_PATH:-/opt/sentry/data}:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
