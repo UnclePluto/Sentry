@@ -15,7 +15,7 @@ export default function Login() {
     setBusy(true);
     setError('');
     try {
-      await post('/auth/admin/login', { username, password });
+      await post('/auth/login', { username, password });
       window.location.assign('/admin/upload');
     } catch (e) {
       setError(errorMessage(e));
