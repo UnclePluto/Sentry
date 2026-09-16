@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { openStore, publishInTransaction } from './store.mjs';
 import { originalPath } from './jobs.mjs';
+import { lockWrites } from './write-gate.mjs';
 const dir = resolve(process.env.SENTRY_DATA_DIR || 'data');
 const db = await openStore(dir),
   workerId = randomUUID();
@@ -30,7 +31,7 @@ async function claim() {
     );
     if (job.attempts >= 5) {
       await tx.query(
-        "UPDATE jobs SET status='failed',error='任务多次中断，请重新上传或重试。',error_code='attempts_exhausted',retryable=(phase='commit'),lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1",
+        "UPDATE jobs SET status='failed',error='重试次数已耗尽，请重新上传或联系管理员。',error_code='attempts_exhausted',retryable=false,lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1",
         [job.id],
       );
       return;
@@ -149,16 +150,13 @@ async function processJob(job) {
       if (accepted) await unlink(originalPath(dir, job.id)).catch(() => {});
     } else {
       await db.transaction(async (tx) => {
+        await lockWrites(tx);
         const current = await tx.get(
           'SELECT * FROM jobs WHERE id=$1 FOR UPDATE',
           job.id,
         );
         if (current.lease_token !== job.token || current.status !== 'running')
           return;
-        const state = await tx.get(
-          'SELECT maintenance FROM dataset_state WHERE id=1 FOR SHARE',
-        );
-        if (state.maintenance) throw Error('maintenance');
         await publishInTransaction(tx, job.id);
         await tx.query(
           "UPDATE jobs SET status='succeeded',lease_token=NULL,lease_until=NULL,updated_at=now(),retryable=false WHERE id=$1",
@@ -190,9 +188,11 @@ async function processJob(job) {
             terminal ? 'failed' : 'queued',
             error.business
               ? error.message
-              : '任务暂时未完成，系统将重试；持续失败时请联系管理员。',
+              : job.attempts >= 5
+                ? '重试次数已耗尽，请重新上传或联系管理员。'
+                : '任务暂时未完成，系统将重试；持续失败时请联系管理员。',
             code,
-            !error.business && job.phase === 'commit',
+            !error.business && job.phase === 'commit' && job.attempts < 5,
           ],
         );
         if (changed.rowCount)

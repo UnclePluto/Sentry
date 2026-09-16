@@ -2,22 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stage, owned } from './store.mjs';
+import { authorizeWrite } from './write-gate.mjs';
 export const invalid = (message, status = 400) =>
   Object.assign(Error(message), { status });
 export const originalPath = (dir, id) => join(dir, 'uploads', id + '.xlsx');
-export async function writable(tx) {
-  const s = await tx.get(
-    'SELECT maintenance FROM dataset_state WHERE id=1 FOR SHARE',
-  );
-  if (s.maintenance) throw invalid('系统维护中，暂时停止写入。', 503);
-}
 export async function enqueue(db, dir, input, bytes) {
   const id = randomUUID();
   await mkdir(join(dir, 'uploads'), { recursive: true, mode: 0o700 });
   await writeFile(originalPath(dir, id), bytes, { mode: 0o600, flag: 'wx' });
   try {
     await db.transaction(async (tx) => {
-      await writable(tx);
+      await authorizeWrite(tx, input.user);
       await stage(tx, { ...input, id });
       await tx.query(
         "INSERT INTO jobs(id,import_id,owner_id,status) VALUES($1,$1,$2,'queued')",
@@ -51,7 +46,7 @@ export async function getJob(db, id, user) {
 }
 export async function commitJob(db, id, user) {
   return db.transaction(async (tx) => {
-    await writable(tx);
+    await authorizeWrite(tx, user);
     // 所有工作者、取消和确认使用相同顺序：任务，再批次。
     const job = await tx.get('SELECT * FROM jobs WHERE id=$1 FOR UPDATE', id);
     const row = await owned(tx, id, user, true);
@@ -80,7 +75,7 @@ export async function commitJob(db, id, user) {
 }
 export async function cancelJob(db, dir, id, user) {
   await db.transaction(async (tx) => {
-    await writable(tx);
+    await authorizeWrite(tx, user);
     const job = await tx.get('SELECT * FROM jobs WHERE id=$1 FOR UPDATE', id);
     await owned(tx, id, user, true);
     if (
@@ -105,7 +100,7 @@ export async function cancelJob(db, dir, id, user) {
 }
 export async function retryJob(db, id, user) {
   return db.transaction(async (tx) => {
-    await writable(tx);
+    await authorizeWrite(tx, user);
     const job = await tx.get('SELECT * FROM jobs WHERE id=$1 FOR UPDATE', id);
     const row = await owned(tx, id, user, true);
     if (

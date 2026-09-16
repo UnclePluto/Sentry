@@ -253,6 +253,7 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
   }
   return {
     dir,
+    baseUrl: () => `http://127.0.0.1:${port}/api`,
     pg,
     previewRaw,
     waitJob,

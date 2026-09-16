@@ -8,6 +8,7 @@ import {
 import { promisify } from 'node:util';
 import { writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { lockWrites } from './write-gate.mjs';
 const scrypt = promisify(scryptCallback);
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const cookieName = 'sentry_admin_session';
@@ -88,7 +89,7 @@ export async function createAuth(db, dataDir) {
     if (!/^[a-f0-9]{64}$/.test(value)) return null;
     return (
       (await connection.get(
-        `SELECT u.* FROM admin_sessions s JOIN admin_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND u.enabled=1` +
+        `SELECT u.*,s.token_hash AS session_hash FROM admin_sessions s JOIN admin_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND u.enabled=1` +
           (lock ? ' FOR UPDATE OF u' : ''),
         digest(value),
         Date.now(),
@@ -297,21 +298,24 @@ export async function createAuth(db, dataDir) {
         return false;
       if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method))
         return handle(db, req, res, url, readBody, json);
+      const bytes = await readBody(req, 4096);
       let response;
       const handled = await db.transaction(async (tx) => {
-        if (
-          url.pathname.startsWith('/api/admins') ||
-          url.pathname === '/api/auth/password'
-        ) {
-          const state = await tx.get(
-            'SELECT maintenance FROM dataset_state WHERE id=1 FOR SHARE',
-          );
-          if (state.maintenance)
-            throw invalid('系统维护中，暂时停止写入。', 503);
-        }
-        return handle(tx, req, res, url, readBody, (...args) => {
-          response = args;
+        await lockWrites(tx, {
+          allowMaintenance: ['/api/auth/login', '/api/auth/logout'].includes(
+            url.pathname,
+          ),
         });
+        return handle(
+          tx,
+          req,
+          res,
+          url,
+          async () => bytes,
+          (...args) => {
+            response = args;
+          },
+        );
       });
       if (response) json(...response);
       return handled;

@@ -1,3 +1,4 @@
+import { authorizeWrite, lockWrites } from './write-gate.mjs';
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { connectDatabase, migrate, verifySchema } from './database.mjs';
@@ -98,14 +99,13 @@ export async function publishInTransaction(tx, id) {
   return { added: row.summary.samples, alreadyCommitted: false };
 }
 export const publish = (db, id) =>
-  db.transaction((tx) => publishInTransaction(tx, id));
+  db.transaction(async (tx) => {
+    await lockWrites(tx);
+    return publishInTransaction(tx, id);
+  });
 export async function withdraw(db, id, user) {
   return db.transaction(async (tx) => {
-    const state = await tx.get(
-      'SELECT maintenance FROM dataset_state WHERE id=1 FOR SHARE',
-    );
-    if (state.maintenance)
-      throw Object.assign(Error('系统维护中，暂时停止写入。'), { status: 503 });
+    await authorizeWrite(tx, user);
     const row = await owned(tx, id, user, true);
     if (row.status === 'withdrawn') return { ok: true };
     if (row.status !== 'published')
@@ -231,6 +231,7 @@ export async function dashboard(
 }
 export async function rebuildAll(db) {
   return db.transaction(async (tx) => {
+    await lockWrites(tx, { allowMaintenance: true });
     // 与发布事务固定相同锁顺序：先阻止新的批次写入，再更新汇总与版本。
     await tx.query('LOCK TABLE imports IN SHARE ROW EXCLUSIVE MODE');
     for (const row of await tx.all(
