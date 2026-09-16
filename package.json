@@ -17,7 +17,12 @@
     "dev:all": "node scripts/dev.mjs",
     "serve": "vinext start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test:smoke": "node scripts/smoke.mjs"
+    "test:smoke": "node scripts/smoke.mjs",
+    "worker": "node --env-file-if-exists=.env server/worker.mjs",
+    "db:migrate": "node --env-file-if-exists=.env scripts/postgres/migrate.mjs",
+    "db:rebuild": "node --env-file-if-exists=.env scripts/postgres/rebuild.mjs",
+    "db:maintenance": "node --env-file-if-exists=.env scripts/postgres/maintenance.mjs",
+    "test:recovery": "python3 scripts/postgres/rehearse-backup.py"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -35,6 +40,7 @@
     "input-otp": "1.4.2",
     "lucide-react": "1.31.0",
     "maplibre-gl": "^6.9.0",
+    "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-day-picker": "9.8.1",
     "react-dom": "^19.3.0",
@@ -52,6 +58,7 @@
     "@openai/sites-vite-plugin": "0.2.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
+    "@types/pg": "^8.23.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",

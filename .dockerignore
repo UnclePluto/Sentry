@@ -17,3 +17,9 @@ dist
 *.log
 .DS_Store
 deploy
+
+.playwright-cli
+output
+outputs
+work
+**/__pycache__

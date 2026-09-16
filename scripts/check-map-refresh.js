@@ -1,10 +1,10 @@
 // 浏览器回归：用 playwright-cli run-code 加载；提前打开待测大盘。
-// 捕获并主动触发真实 30 秒刷新回调，检查整张地图不会重新淡出。
+// 捕获并主动触发真实 20 秒刷新回调，检查整张地图不会重新淡出。
 async () => {
   await page.addInitScript(() => {
     const interval = window.setInterval;
     window.setInterval = function(fn, delay, ...args) {
-      if (delay === 30000) window.__refreshMap = () => fn(...args);
+      if (delay === 20000) window.__refreshMap = () => fn(...args);
       return interval(fn, delay, ...args);
     };
     window.__mapFades = [];
@@ -24,5 +24,5 @@ async () => {
   if (!await page.evaluate(() => window.__originalMapScene === document.querySelector('.map-scene'))) throw new Error('刷新不应重建地图节点');
   const fades = await page.evaluate(() => window.__mapFades);
   console.log(JSON.stringify({refreshFades:fades}));
-  if (fades.some(frames => frames.some(f => Number(f.opacity) < 1))) throw new Error('后台30秒刷新让地图透明度下降并重新渐显');
+  if (fades.some(frames => frames.some(f => Number(f.opacity) < 1))) throw new Error('后台20秒刷新让地图透明度下降并重新渐显');
 }

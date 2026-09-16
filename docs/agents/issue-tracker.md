@@ -15,3 +15,5 @@
 ## 当前规格
 
 - [Excel 提交、统计口径与历史管理重构](../../.scratch/excel-submission-rules/spec.md)
+- [PostgreSQL 生产架构、异步导入与可恢复部署](../../.scratch/postgresql-production/spec.md)
+- [PostgreSQL 生产架构实施任务（11 张）](../../.scratch/postgresql-production/README.md)

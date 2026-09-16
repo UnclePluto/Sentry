@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { checkArchive } from './xlsx-limits.mjs';
 export const KNOWN_NAMES = {
   N: '未指定病原体',
   Ecoli: '大肠埃希菌',
@@ -33,6 +34,7 @@ const aliases = {
   name: ['中文', '病原体名称'],
 };
 export async function parseWorkbook(bytes) {
+  checkArchive(bytes);
   const book = new ExcelJS.Workbook();
   try {
     await book.xlsx.load(bytes);
@@ -41,7 +43,7 @@ export async function parseWorkbook(bytes) {
   }
   const sheet = book.getWorksheet('Sheet1');
   if (!sheet) throw new Error('缺少 Sheet1 工作表，请将检测结果放在 Sheet1。');
-  if (sheet.rowCount > 50000) throw new Error('Sheet1 不能超过 50,000 行。');
+
   let cols, header;
   for (let n = 1; n <= Math.min(10, sheet.rowCount); n++) {
     const values = sheet.getRow(n).values.map((v) => text(v).toLowerCase());
@@ -64,7 +66,8 @@ export async function parseWorkbook(bytes) {
     names = { ...KNOWN_NAMES },
     warnings = [],
     seen = new Map();
-  let excluded = 0;
+  let excluded = 0,
+    nonempty = 0;
   for (let n = header + 1; n <= sheet.rowCount; n++) {
     const row = sheet.getRow(n);
     const get = (key) =>
@@ -75,6 +78,10 @@ export async function parseWorkbook(bytes) {
       raw = get('ct'),
       name = get('name');
     if (![batch, sample, code, raw, name].some(Boolean)) continue;
+    if (++nonempty > 30000)
+      throw new Error(
+        'Sheet1 数据不能超过 30,000 个非空行（含对照行，不含表头）。',
+      );
     if (code === 'N' || raw === '-' || raw === '—') {
       excluded++;
       continue;

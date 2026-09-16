@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { AdminHeader, useAdmin } from '@/components/admin-session';
 import {
   Upload,
@@ -37,11 +37,32 @@ import { Picker } from '@/components/picker';
 import type {
   Preview,
   ImportHistory,
-  CommitResult,
   GeoProperties,
   GeoData,
 } from '@/lib/models';
 import { api, post, number, percent, errorMessage } from '@/lib/api';
+type Job = Preview & {
+  status: string;
+  phase: string;
+  error?: string;
+  retryable?: boolean;
+  added?: number;
+};
+type Task = ImportHistory & {
+  job_status: string;
+  phase: string;
+  error?: string;
+  retryable?: boolean;
+};
+const jobLabels: Record<string, string> = {
+  queued: '排队中',
+  running: '处理中',
+  ready: '待确认',
+  failed: '处理失败',
+  succeeded: '已入库',
+  cancelled: '已取消',
+  expired: '已过期',
+};
 const localDate = () => new Date().toLocaleDateString('sv-SE');
 const displayTime = (value: string) =>
   new Date(value).toLocaleString('zh-CN', { hour12: false });
@@ -63,11 +84,81 @@ export default function UploadPage() {
   const [provinces, setProvinces] = useState<GeoProperties[]>([]),
     [cities, setCities] = useState<GeoProperties[]>([]),
     [counties, setCounties] = useState<GeoProperties[]>([]);
+  const [jobId, setJobId] = useState('');
+  const [job, setJob] = useState<Job | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [taskPage, setTaskPage] = useState(1);
+  const [taskTotal, setTaskTotal] = useState(0);
   const [geoBusy, setGeoBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const load = async () => setHistory(await api<ImportHistory[]>('/imports'));
+  const load = useCallback(async () => {
+    const r = await api<{ items: ImportHistory[]; total: number }>(
+      '/imports?page=' + page,
+    );
+    setHistory(r.items);
+    setTotal(r.total);
+  }, [page]);
+  const loadTasks = useCallback(async () => {
+    const r = await api<{ items: Task[]; total: number }>(
+      '/jobs?page=' + taskPage,
+    );
+    setTasks(r.items);
+    setTaskTotal(r.total);
+  }, [taskPage]);
   useEffect(() => {
     load().catch((e) => setError(errorMessage(e)));
+  }, [load]);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => {
+      if (live) loadTasks().catch((e) => setError(errorMessage(e)));
+    };
+    refresh();
+    const timer = setInterval(refresh, 3000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [loadTasks]);
+  useEffect(() => {
+    if (!jobId) return;
+    const c = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const j = await api<Job>('/jobs/' + jobId, { signal: c.signal });
+        if (c.signal.aborted) return;
+        setJob(j);
+        if (j.status === 'ready') {
+          setPreview(j);
+          setBusy(false);
+        } else if (j.status === 'succeeded') {
+          setPreview(null);
+          setBusy(false);
+          setSuccess(`提交成功：${j.added} 个有效试剂已入库。`);
+          await load();
+        } else if (['failed', 'expired', 'cancelled'].includes(j.status)) {
+          setPreview(null);
+          setBusy(false);
+          if (j.error) setError(j.error);
+        } else timer = setTimeout(poll, 1500);
+      } catch (e) {
+        if (!c.signal.aborted) {
+          setBusy(false);
+          setError(errorMessage(e));
+          timer = setTimeout(poll, 5000);
+        }
+      }
+    };
+    void poll();
+    return () => {
+      c.abort();
+      clearTimeout(timer);
+    };
+  }, [jobId, load]);
+  useEffect(() => {
     api<GeoData>('/geo?code=100000')
       .then((g) =>
         setProvinces(
@@ -138,7 +229,7 @@ export default function UploadPage() {
     setSuccess('');
     setPreview(null);
     try {
-      const result = await api<Preview>(
+      const result = await api<{ id: string }>(
         '/imports/preview?' +
           new URLSearchParams({
             province_code: province,
@@ -153,7 +244,9 @@ export default function UploadPage() {
           body: await file.arrayBuffer(),
         },
       );
-      setPreview(result);
+      setJobId(result.id);
+      setJob(null);
+      await loadTasks();
       setFile(null);
       if (input.current) input.current.value = '';
     } catch (e) {
@@ -167,14 +260,13 @@ export default function UploadPage() {
     setBusy(true);
     setError('');
     try {
-      const result = await post<CommitResult>('/imports/commit', {
-        id: preview.id,
-      });
-      setSuccess(
-        `提交成功：${result.added} 个有效试剂已入库。大盘将在下次刷新时更新。`,
-      );
+      await post('/imports/commit', { id: preview.id });
+      const id = preview.id;
       setPreview(null);
-      await load();
+      setJob({ id, status: 'queued', phase: 'commit' } as Job);
+      setJobId('');
+      setTimeout(() => setJobId(id), 0);
+      await loadTasks();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -208,7 +300,7 @@ export default function UploadPage() {
           </div>
           <div className="workspace-tag">
             <Database size={16} />
-            本地数据库
+            数据工作台
           </div>
         </div>
         <Tabs
@@ -240,6 +332,124 @@ export default function UploadPage() {
             </output>
           )}
           <TabsContent value="upload">
+            <section className="admin-table-card" aria-label="上传任务">
+              <div className="table-toolbar">
+                <div>
+                  <h2>上传任务</h2>
+                  <p>
+                    关闭页面后仍会继续处理，可在这里查看结果。预览保留 7 天。
+                  </p>
+                </div>
+              </div>
+              {job && (
+                <output>
+                  当前任务：{job.phase === 'commit' ? '入库' : '解析'} ·{' '}
+                  {jobLabels[job.status] || job.status}
+                </output>
+              )}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>文件／批次</TableHead>
+                    <TableHead>提交人</TableHead>
+                    <TableHead>进度</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell>
+                        {t.file_name}
+                        <small className="code-note">{t.id}</small>
+                      </TableCell>
+                      <TableCell>{t.submitted_name}</TableCell>
+                      <TableCell>
+                        {t.phase === 'commit' ? '入库' : '解析'} ·{' '}
+                        {jobLabels[t.job_status] || t.job_status}
+                        {t.error && (
+                          <p className="whitespace-pre-line">{t.error}</p>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setError('');
+                            setJobId('');
+                            setTimeout(() => setJobId(t.id), 0);
+                          }}
+                        >
+                          查看结果
+                        </Button>
+                        {t.phase === 'parse' &&
+                          ['queued', 'running', 'ready', 'failed'].includes(
+                            t.job_status,
+                          ) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  await post('/jobs/cancel', { id: t.id });
+                                  if (jobId === t.id) {
+                                    setJobId('');
+                                    setJob(null);
+                                    setPreview(null);
+                                  }
+                                  await loadTasks();
+                                } catch (e) {
+                                  setError(errorMessage(e));
+                                }
+                              }}
+                            >
+                              取消
+                            </Button>
+                          )}
+                        {t.job_status === 'failed' && t.retryable && (
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await post('/jobs/retry', { id: t.id });
+                                setJobId('');
+                                setTimeout(() => setJobId(t.id), 0);
+                                await loadTasks();
+                              } catch (e) {
+                                setError(errorMessage(e));
+                              }
+                            }}
+                          >
+                            重试入库
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {!tasks.length && <p className="admin-empty">暂无待处理任务</p>}
+              <div className="table-toolbar">
+                <Button
+                  variant="outline"
+                  disabled={taskPage === 1}
+                  onClick={() => setTaskPage((p) => p - 1)}
+                >
+                  上一页
+                </Button>
+                <span>
+                  第 {taskPage} 页 · 共 {taskTotal} 条
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={taskPage * 20 >= taskTotal}
+                  onClick={() => setTaskPage((p) => p + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </section>
             <div className="upload-grid">
               <section className="upload-card">
                 <div className="step-header">
@@ -354,7 +564,7 @@ export default function UploadPage() {
                         ? '解析已完成，请核对下方汇总'
                         : '将 Excel 拖到这里'}
                   </strong>
-                  <p>支持 .xlsx，单个文件最大 8 MB</p>
+                  <p>支持 .xlsx，最大 8 MB；Sheet1 最多 30,000 个非空数据行</p>
                   <input
                     ref={input}
                     type="file"
@@ -461,7 +671,10 @@ export default function UploadPage() {
                     {w}
                   </p>
                 ))}
-                <p className="field-hint">当前尚未参与统计，确认后整批生效。</p>
+                <p className="field-hint">
+                  当前尚未参与统计，确认后整批生效。预览保留 7
+                  天，逾期需重新上传。
+                </p>
               </section>
             )}
           </TabsContent>
@@ -565,6 +778,25 @@ export default function UploadPage() {
                   ))}
                 </TableBody>
               </Table>
+              <div className="table-toolbar">
+                <Button
+                  variant="outline"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  上一页
+                </Button>
+                <span>
+                  第 {page} 页 · 共 {total} 条
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={page * 20 >= total}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
               {!history.length && (
                 <div className="admin-empty">暂无提交记录</div>
               )}

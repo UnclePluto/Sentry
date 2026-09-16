@@ -1,10 +1,12 @@
 import ExcelJS from 'exceljs';
-import { spawn } from 'node:child_process';
+import { testDatabase } from './postgres.mjs';
+import { spawn, execFile } from 'node:child_process';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 
 const district = {
   province_code: '420000',
@@ -28,6 +30,8 @@ export const validRows = [
 ];
 export async function fixture(t, { legacy = false, demo = false } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'sentry-submissions-'));
+  const pg = await testDatabase();
+  let worker;
   let child,
     cookie = '';
   let port;
@@ -122,13 +126,30 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
       .run(2, 2, 'N', 'negative', null, '阴性', '', 3);
     old.close();
     await mkdir(join(dir, 'uploads'));
-    await writeFile(join(dir, 'uploads', 'legacy.xlsx'), 'legacy source');
+    await promisify(execFile)(
+      process.execPath,
+      [
+        'scripts/postgres/import-sqlite.mjs',
+        '--source',
+        join(dir, 'sentry.sqlite'),
+        '--snapshot-dir',
+        join(dir, 'snapshots'),
+      ],
+      { env: { ...process.env, DATABASE_URL: pg.url } },
+    );
+    await promisify(execFile)(
+      process.execPath,
+      ['scripts/postgres/maintenance.mjs', 'off'],
+      { env: { ...process.env, DATABASE_URL: pg.url } },
+    );
   }
 
   async function start() {
     child = spawn(process.execPath, ['server/index.mjs'], {
       env: {
         ...process.env,
+        DATABASE_URL: pg.url,
+        SENTRY_AUTO_MIGRATE: '1',
         API_PORT: '0',
         SENTRY_DATA_DIR: dir,
         SENTRY_NO_DEMO: demo ? '0' : '1',
@@ -146,8 +167,23 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
       child.once('exit', () => reject(new Error(err)));
     });
   }
+  function startWorker() {
+    worker = spawn(process.execPath, ['server/worker.mjs'], {
+      env: { ...process.env, DATABASE_URL: pg.url, SENTRY_DATA_DIR: dir },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    worker.stderr.on('data', () => {});
+  }
+  async function stopWorker() {
+    if (worker && worker.exitCode === null && worker.signalCode === null)
+      await new Promise((r) => {
+        worker.once('exit', r);
+        worker.kill('SIGTERM');
+      });
+  }
   async function stop() {
-    if (child && child.exitCode === null)
+    await stopWorker();
+    if (child && child.exitCode === null && child.signalCode === null)
       await new Promise((r) => {
         child.once('exit', r);
         child.kill('SIGTERM');
@@ -156,6 +192,7 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
   t.after(async () => {
     await stop();
     await rm(dir, { recursive: true, force: true });
+    await pg.close();
   });
   const request = async (path, options = {}) => {
     const res = await fetch(`http://127.0.0.1:${port}/api` + path, {
@@ -176,11 +213,12 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
       body: JSON.stringify(data),
     });
   await start();
+  startWorker();
   const credentials = JSON.parse(
     await readFile(join(dir, 'initial-admin.json'), 'utf8'),
   );
   cookie = (await post('/auth/login', credentials)).cookie;
-  const preview = (bytes, extra = {}) =>
+  const previewRaw = (bytes, extra = {}) =>
     request(
       '/imports/preview?' +
         new URLSearchParams({
@@ -191,8 +229,36 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
         }),
       { method: 'POST', body: bytes },
     );
+  async function waitJob(
+    id,
+    terminal = ['ready', 'failed', 'cancelled', 'expired', 'succeeded'],
+  ) {
+    const until = Date.now() + 35000;
+    while (Date.now() < until) {
+      const r = await request('/jobs/' + id);
+      if (r.status !== 200 || terminal.includes(r.data.status)) return r;
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    throw Error('任务等待超时');
+  }
+  async function preview(bytes, extra = {}) {
+    const r = await previewRaw(bytes, extra);
+    return r.status === 202 ? waitJob(r.data.id) : r;
+  }
+  async function commit(id) {
+    const r = await post('/imports/commit', { id });
+    return r.status === 202
+      ? waitJob(id, ['succeeded', 'failed', 'expired'])
+      : r;
+  }
   return {
     dir,
+    pg,
+    previewRaw,
+    waitJob,
+    commit,
+    startWorker,
+    stopWorker,
     request,
     post,
     preview,

@@ -17,7 +17,7 @@ test(
         ['B', 'E', 'N', 26, ''],
       ]),
     );
-    assert.equal(p.status, 201, JSON.stringify(p.data));
+    assert.equal(p.status, 200, JSON.stringify(p.data));
     assert.equal(p.data.sheet, 'Sheet1');
     assert.equal(p.data.summary.rows, 3);
     assert.equal(p.data.summary.samples, 2);
@@ -26,10 +26,7 @@ test(
     assert.equal(p.data.summary.excluded, 4);
     assert.equal(p.data.records, undefined);
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
-    assert.equal(
-      (await f.post('/imports/commit', { id: p.data.id })).status,
-      200,
-    );
+    assert.equal((await f.commit(p.data.id)).status, 200);
     const dash = (await f.request('/dashboard')).data;
     assert.equal(dash.metrics.tested, 2);
     assert.equal(dash.metrics.positive, 1);
@@ -58,11 +55,11 @@ test(
       [[['B', 'S', 'N', '阴性', '']], /没有有效/],
     ]) {
       const r = await f.preview(await workbook(rows));
-      assert.equal(r.status, 400);
+      assert.equal(r.data.status, 'failed');
       assert.match(r.data.error, pattern);
     }
     const missing = await f.preview(await workbook(validRows, '结果'));
-    assert.equal(missing.status, 400);
+    assert.equal(missing.data.status, 'failed');
     assert.match(missing.data.error, /Sheet1/);
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
     assert.ok(
@@ -80,20 +77,14 @@ test(
     const f = await fixture(t);
     const bytes = await workbook(validRows);
     const a = await f.preview(bytes, { institutionId: '', county_code: '' });
-    assert.equal(a.status, 201, JSON.stringify(a.data));
-    assert.equal(
-      (await f.post('/imports/commit', { id: a.data.id })).status,
-      200,
-    );
-    assert.equal(
-      (await f.post('/imports/commit', { id: a.data.id })).status,
-      200,
-    );
+    assert.equal(a.status, 200, JSON.stringify(a.data));
+    assert.equal((await f.commit(a.data.id)).status, 200);
+    assert.equal((await f.commit(a.data.id)).status, 200);
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 2);
     const b = await f.preview(bytes, { institutionId: '', date: '2026-08-01' });
-    assert.equal(b.status, 201, JSON.stringify(b.data));
+    assert.equal(b.status, 200, JSON.stringify(b.data));
     assert.notEqual(a.data.id, b.data.id);
-    await f.post('/imports/commit', { id: b.data.id });
+    await f.commit(b.data.id);
     const d = (await f.request('/dashboard')).data;
     assert.equal(d.metrics.tested, 4);
     assert.equal(d.metrics.positive, 2);
@@ -130,38 +121,32 @@ test(
     ).cookie;
     f.setCookie(alice);
     const a = await f.preview(bytes);
-    assert.equal(a.status, 201);
-    await f.post('/imports/commit', { id: a.data.id });
+    assert.equal(a.status, 200);
+    await f.commit(a.data.id);
     f.setCookie(superCookie);
     const b = await f.preview(bytes);
-    await f.post('/imports/commit', { id: b.data.id });
-    const all = (await f.request('/imports')).data;
+    await f.commit(b.data.id);
+    const all = (await f.request('/imports')).data.items;
     assert.equal(all.length, 2);
     assert.equal(all.find((h) => h.id === a.data.id).submitted_name, '甲医生');
     f.setCookie(alice);
-    assert.equal((await f.request('/imports')).data.length, 1);
+    assert.equal((await f.request('/imports')).data.items.length, 1);
     assert.equal(
       (await f.post('/imports/withdraw', { id: b.data.id })).status,
       404,
     );
-    assert.equal(
-      (await f.post('/imports/commit', { id: b.data.id })).status,
-      404,
-    );
+    assert.equal((await f.commit(b.data.id)).status, 404);
     f.setCookie(superCookie);
     const staged = await f.preview(bytes);
     f.setCookie(alice);
-    assert.equal(
-      (await f.post('/imports/commit', { id: staged.data.id })).status,
-      404,
-    );
+    assert.equal((await f.commit(staged.data.id)).status, 404);
     const w = await f.post('/imports/withdraw', { id: a.data.id });
     assert.equal(w.status, 200);
     assert.equal(
       (await f.post('/imports/withdraw', { id: a.data.id })).status,
       200,
     );
-    const hist = (await f.request('/imports')).data[0];
+    const hist = (await f.request('/imports')).data.items[0];
     assert.equal(hist.status, 'withdrawn');
     assert.equal(hist.summary.tested, 2);
     assert.ok(hist.withdrawn_at);
@@ -170,7 +155,7 @@ test(
     f.setCookie(superCookie);
     await f.post('/admins/' + create.data.id, { action: 'delete' });
     assert.equal(
-      (await f.request('/imports')).data.find((h) => h.id === a.data.id)
+      (await f.request('/imports')).data.items.find((h) => h.id === a.data.id)
         .submitted_name,
       '甲医生',
     );
@@ -178,7 +163,7 @@ test(
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
     await f.stop();
     await f.start();
-    const history = (await f.request('/imports')).data;
+    const history = (await f.request('/imports')).data.items;
     assert.equal(history.length, 2);
     assert.ok(history.every((h) => h.status === 'withdrawn'));
   },
@@ -197,8 +182,8 @@ test(
       { province_code: '110000', city_code: '110000', county_code: '110101' },
     ]) {
       const p = await f.preview(bytes, location);
-      assert.equal(p.status, 201, JSON.stringify(p.data));
-      await f.post('/imports/commit', { id: p.data.id });
+      assert.equal(p.status, 200, JSON.stringify(p.data));
+      await f.commit(p.data.id);
     }
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 8);
     const province = (await f.request('/dashboard?region=420000')).data;
@@ -227,41 +212,6 @@ test(
 );
 
 test(
-  '旧数据升级：未知归属作废、对照剔除、清理原文件，演示与重启一致',
-  { timeout: 40000 },
-  async (t) => {
-    const f = await fixture(t, { legacy: true, demo: true });
-    const backups = await readdir(f.dir + '/backups');
-    assert.equal(backups.filter((x) => x.endsWith('.sqlite')).length, 1);
-    const history = (await f.request('/imports')).data;
-    assert.equal(history.length, 1);
-    assert.equal(history[0].status, 'withdrawn');
-    assert.equal(history[0].summary.tested, 1);
-    assert.equal(history[0].summary.excluded, 1);
-    assert.match(history[0].submitted_name, /归属未知/);
-    assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
-    const demo = (await f.request('/dashboard?demo=1')).data;
-    assert.ok(demo.metrics.tested > 0);
-    assert.equal(demo.metrics.untested, 0);
-    assert.ok(!demo.ranking.some((r) => r.code === 'N'));
-    assert.ok(
-      !(await readdir(f.dir, { recursive: true })).some((x) =>
-        x.endsWith('.xlsx'),
-      ),
-    );
-    await f.stop();
-    await f.start();
-    assert.equal(
-      (await f.request('/dashboard?demo=1')).data.metrics.tested,
-      demo.metrics.tested,
-    );
-    assert.equal((await f.request('/imports')).data.length, 1);
-    assert.equal((await f.request('/auth/me')).status, 200);
-    assert.deepEqual(await readdir(f.dir + '/backups'), backups);
-  },
-);
-
-test(
   '富文本标识统一去空白，不能绕过重复校验或对照剔除',
   { timeout: 40000 },
   async (t) => {
@@ -272,7 +222,7 @@ test(
         [{ richText: [{ text: ' B ' }] }, 'A', 'IAV', 26, ''],
       ]),
     );
-    assert.equal(duplicate.status, 400);
+    assert.equal(duplicate.data.status, 'failed');
     assert.match(duplicate.data.error, /重复/);
     const excluded = await f.preview(
       await workbook([
@@ -281,7 +231,7 @@ test(
         ['B', 'D', 'IAV', { richText: [{ text: ' — ' }] }, ''],
       ]),
     );
-    assert.equal(excluded.status, 201);
+    assert.equal(excluded.status, 200);
     assert.equal(excluded.data.summary.excluded, 2);
     assert.equal(excluded.data.summary.tested, 2);
   },

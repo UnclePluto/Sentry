@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { testDatabase } from './helpers/postgres.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, access } from 'node:fs/promises';
@@ -9,11 +10,14 @@ test(
   '管理员登录、权限隔离、账号停用/重置/删除、会话撤销与超管保护',
   { timeout: 40000 },
   async () => {
+    const pg = await testDatabase();
     const dir = await mkdtemp(join(tmpdir(), 'sentry-auth-'));
     const child = spawn(process.execPath, ['server/index.mjs'], {
       env: {
         ...process.env,
         API_PORT: '3098',
+        DATABASE_URL: pg.url,
+        SENTRY_AUTO_MIGRATE: '1',
         SENTRY_DATA_DIR: dir,
         SENTRY_NO_DEMO: '1',
       },
@@ -42,12 +46,14 @@ test(
         child.once('error', reject);
         child.once('exit', () => reject(new Error('认证测试服务未启动')));
       });
+      assert.equal((await request('/health')).data.database, 'postgresql');
       const credentials = JSON.parse(
         await readFile(join(dir, 'initial-admin.json'), 'utf8'),
       );
       assert.equal((await request('/imports')).status, 401);
       assert.equal((await request('/institutions', '', {})).status, 401);
-      assert.equal((await request('/dashboard?demo=0')).status, 200);
+      const overview = await request('/dashboard?demo=0');
+      assert.equal(overview.status, 200, JSON.stringify(overview.data));
       assert.equal(
         (
           await request('/auth/login', '', {
@@ -205,6 +211,7 @@ test(
           child.kill('SIGTERM');
         });
       await rm(dir, { recursive: true, force: true });
+      await pg.close();
     }
   },
 );

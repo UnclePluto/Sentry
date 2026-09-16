@@ -42,3 +42,8 @@ data/
 *.tsbuildinfo
 
 !.env.example
+
+# 浏览器验收临时记录
+/.playwright-cli/
+/output/playwright/
+**/__pycache__/

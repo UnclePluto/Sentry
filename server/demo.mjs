@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { stage, publish } from './store.mjs';
 import { KNOWN_NAMES, summarize } from './parser.mjs';
-export function seedDemo(db) {
-  if (db.prepare('SELECT id FROM imports WHERE demo=1 LIMIT 1').get()) return;
+export async function seedDemo(db) {
+  if (await db.get('SELECT id FROM imports WHERE demo=1 LIMIT 1')) return;
   const places = [
     ['420000', '湖北省', '420100', '武汉市', 114.3, 30.59],
     ['420000', '湖北省', '422800', '恩施土家族苗族自治州', 109.49, 30.27],
@@ -27,7 +27,7 @@ export function seedDemo(db) {
     return seed / 4294967296;
   };
   const codes = ['IAV', 'IBV', 'RSV', 'HRV', 'ADV', 'MP', 'Spn', 'Hinf'];
-  places.forEach(([pc, p, cc, c], index) => {
+  for (const [index, [pc, p, cc, c]] of places.entries()) {
     const direct = ['110000', '120000', '310000', '500000'].includes(pc);
     const cityCode = direct ? pc : cc;
     const path = `public/maps/${cityCode}.json`;
@@ -81,7 +81,7 @@ export function seedDemo(db) {
         warnings: ['演示数据，非真实监测结果'],
         summary: { ...summarize(records), excluded },
       };
-      const idImport = stage(db, {
+      const idImport = await stage(db, {
         fileName: '演示数据',
         hash: `demo-${cc}-${month}`,
         location,
@@ -89,7 +89,7 @@ export function seedDemo(db) {
         payload,
         demo: 1,
       });
-      publish(db, idImport);
+      await publish(db, idImport);
     }
-  });
+  }
 }

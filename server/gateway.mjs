@@ -178,10 +178,16 @@ if (
   const development = !process.argv.includes('--production');
   const host = process.env.SENTRY_GATEWAY_HOST || '127.0.0.1';
   for (const [mode, port] of [
-    ['dashboard', 3000],
-    ['admin', 3002],
+    ['dashboard', Number(process.env.SENTRY_DASHBOARD_PORT || 3000)],
+    ['admin', Number(process.env.SENTRY_ADMIN_PORT || 3002)],
   ]) {
-    const server = createGateway({ mode, development });
+    const server = createGateway({
+      mode,
+      development,
+      apiOrigin: process.env.SENTRY_API_ORIGIN || 'http://127.0.0.1:3001',
+      rendererOrigin:
+        process.env.SENTRY_RENDERER_ORIGIN || 'http://127.0.0.1:3010',
+    });
     server.on('error', (error) => {
       console.error(error.message);
       process.exit(1);

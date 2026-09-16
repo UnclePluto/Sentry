@@ -4,6 +4,7 @@ const frontend = production
   ? ['start', '--hostname', '127.0.0.1']
   : ['dev', '--hostname', '127.0.0.1'];
 const children = [
+  ...(!production ? [spawn(process.execPath,['--env-file-if-exists=.env','server/worker.mjs'],{stdio:'inherit'})] : []),
   spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.mjs'], {
     stdio: 'inherit',
   }),

@@ -15,9 +15,9 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/server ./server
-COPY --from=build --chown=node:node /app/scripts/dev.mjs ./scripts/dev.mjs
+COPY --from=build --chown=node:node /app/scripts ./scripts
 COPY --from=build --chown=node:node /app/package.json ./package.json
-RUN mkdir -p /app/data && chown node:node /app/data
+RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
 USER node
 EXPOSE 3000 3002
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=3 \

@@ -186,7 +186,7 @@ export default function Dashboard() {
     return () => lifecycle.abort();
   }, [demo, data, region, range]);
   useEffect(() => {
-    const t = setInterval(() => setRefresh((v) => v + 1), 30000);
+    const t = setInterval(() => setRefresh((v) => v + 1), 20000);
     return () => clearInterval(t);
   }, []);
   const chartData = overview;

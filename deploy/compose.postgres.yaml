@@ -1,0 +1,112 @@
+name: sentry-pg
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: '3'}
+x-app: &app
+  image: ${SENTRY_IMAGE:?请设置应用镜像}
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 40s
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  logging: *logging
+  volumes:
+    - ${SENTRY_DATA_PATH:-/opt/sentry-pg/data}:/app/data
+    - uploads:/app/data/uploads
+  secrets: [database_url]
+  environment: &env
+    TZ: Asia/Shanghai
+    DATABASE_URL_FILE: /run/secrets/database_url
+    SENTRY_DATA_DIR: /app/data
+    SENTRY_NO_DEMO: '1'
+    PG_POOL_MAX: '4'
+    NODE_OPTIONS: --max-old-space-size=320
+  depends_on:
+    postgres: {condition: service_healthy}
+    migrate: {condition: service_completed_successfully}
+services:
+  postgres:
+    image: ${SENTRY_POSTGRES_IMAGE:?请设置包含 pgBackRest 的 PostgreSQL 17 镜像}
+    init: true
+    restart: unless-stopped
+    shm_size: 128mb
+    mem_limit: 448m
+    cpus: 0.8
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: sentry
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      SENTRY_BACKUP_ENV: ${SENTRY_BACKUP_ENV:-production}
+      SENTRY_BACKUP_INSTANCE: ${SENTRY_BACKUP_INSTANCE:?请设置独立备份实例标识}
+    secrets: [postgres_password, runtime_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pgsocket:/var/run/postgresql
+    command: [postgres, -c, shared_buffers=96MB, -c, effective_cache_size=256MB, -c, work_mem=2MB, -c, maintenance_work_mem=32MB, -c, max_connections=24, -c, wal_level=replica, -c, archive_mode=on, -c, archive_timeout=300, -c, "archive_command=sentry-pgbackrest archive-push %p", -c, max_wal_size=1GB, -c, log_min_error_statement=panic, -c, log_statement=none, -c, log_parameter_max_length_on_error=0]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d sentry']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+  migrate:
+    <<: *app
+    restart: 'no'
+    mem_limit: 192m
+    depends_on:
+      postgres: {condition: service_healthy}
+    secrets: [migration_database_url]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/migration_database_url
+    command: [node, scripts/postgres/migrate.mjs]
+    healthcheck: {disable: true}
+  app:
+    <<: *app
+    mem_limit: 512m
+    cpus: 0.8
+    ports:
+      - '127.0.0.1:${SENTRY_DASHBOARD_PORT:-13000}:3000'
+      - '127.0.0.1:${SENTRY_ADMIN_PORT:-3002}:3002'
+    environment:
+      <<: *env
+      SENTRY_GATEWAY_HOST: 0.0.0.0
+      SENTRY_TRUSTED_ORIGINS: ${SENTRY_TRUSTED_ORIGINS:-https://sentry.floatnoise.com}
+      SENTRY_SECURE_COOKIE: ${SENTRY_SECURE_COOKIE:-1}
+  worker:
+    <<: *app
+    mem_limit: 320m
+    cpus: 0.6
+    command: [node, server/worker.mjs]
+    healthcheck:
+      test: [CMD, node, scripts/postgres/worker-health.mjs]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+  backup:
+    image: ${SENTRY_POSTGRES_IMAGE}
+    user: postgres
+    init: true
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.3
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      SENTRY_BACKUP_ENV: ${SENTRY_BACKUP_ENV:-production}
+      SENTRY_BACKUP_INSTANCE: ${SENTRY_BACKUP_INSTANCE}
+    volumes:
+      - pgdata:/var/lib/postgresql/data:ro
+      - pgsocket:/var/run/postgresql
+    command: [sentry-pgbackrest-schedule]
+    logging: *logging
+secrets:
+  postgres_password: {file: '${SENTRY_SECRETS_DIR:-/opt/sentry-pg/secrets}/postgres_password'}
+  runtime_password: {file: '${SENTRY_SECRETS_DIR:-/opt/sentry-pg/secrets}/runtime_password'}
+  database_url: {file: '${SENTRY_SECRETS_DIR:-/opt/sentry-pg/secrets}/database_url'}
+  migration_database_url: {file: '${SENTRY_SECRETS_DIR:-/opt/sentry-pg/secrets}/migration_database_url'}
+volumes:
+  pgdata:
+  pgsocket:
+  uploads:
