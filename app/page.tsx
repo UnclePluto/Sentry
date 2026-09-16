@@ -369,7 +369,6 @@ export default function Dashboard() {
           navigation={navigation}
           arrival={arrival}
           onTransitionEnd={finishNavigation}
-          refreshToken={refresh}
           onDrill={(r) => {
             if (r.code !== region.code) void navigate([...path, r]);
           }}

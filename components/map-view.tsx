@@ -56,7 +56,6 @@ export default function MapView({
   navigation,
   arrival,
   onTransitionEnd,
-  refreshToken,
 }: {
   region: Region;
   regions?: RegionGroups;
@@ -68,14 +67,12 @@ export default function MapView({
   navigation?: MapJourney | null;
   arrival?: MapJourney | null;
   onTransitionEnd: () => void;
-  refreshToken: number;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const previous = useRef<RegionStats[] | null>(null);
   const scene = useRef<HTMLDivElement>(null);
   const [entering, setEntering] = useState(Boolean(arrival));
   const [measured, setMeasured] = useState(false);
-  const lastReveal = useRef(refreshToken);
   const [geo, setGeo] = useState<GeoData | null>(preparedGeo || null),
     [error, setError] = useState(''),
     [zoomOffset, setZoomOffset] = useState(0),
@@ -578,25 +575,17 @@ export default function MapView({
     ? viewport.project([...activePosition.position, activePosition.z])
     : null;
   useEffect(() => {
-    if (
-      !geo ||
-      !scene.current ||
-      navigation ||
-      (arrival && lastReveal.current === refreshToken)
-    )
-      return;
-    const refreshOnly = lastReveal.current !== refreshToken;
-    lastReveal.current = refreshToken;
+    if (!geo || !scene.current || navigation || arrival) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const animation = scene.current.animate(
       [
-        { opacity: refreshOnly ? 0.35 : 0, filter: 'blur(2px)' },
+        { opacity: 0, filter: 'blur(2px)' },
         { opacity: 1, filter: 'blur(0px)' },
       ],
       { duration: 650, easing: 'ease-out' },
     );
     return () => animation.cancel();
-  }, [geo, refreshToken]);
+  }, [geo, navigation, arrival]);
   const transitioning = Boolean(navigation || entering);
   return (
     <div
