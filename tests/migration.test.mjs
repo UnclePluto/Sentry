@@ -36,3 +36,22 @@ void test(
     assert.deepEqual(await readdir(f.dir + '/snapshots'), backups);
   },
 );
+
+void test(
+  '旧过期预览保留可见任务摘要，不自动发布或恢复有效期',
+  { timeout: 40000 },
+  async (t) => {
+    const f = await fixture(t, { legacy: true, expiredPreview: true });
+    const tasks = (await f.request('/jobs')).data.items;
+    assert.ok(
+      tasks.some(
+        (j) => j.id === 'expired-preview' && j.job_status === 'expired',
+      ),
+    );
+    assert.equal(
+      (await f.post('/imports/commit', { id: 'expired-preview' })).status,
+      400,
+    );
+    assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
+  },
+);

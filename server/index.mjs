@@ -125,9 +125,9 @@ const server = createServer(async (req, res) => {
           tasks: true,
         }),
       );
-    const jobMatch = p.match(/^\/api\/jobs\/([a-f0-9-]+)$/);
+    const jobMatch = p.match(/^\/api\/jobs\/([^/]+)$/);
     if (req.method === 'GET' && jobMatch)
-      return json(res, await getJob(db, jobMatch[1], user));
+      return json(res, await getJob(db, decodeURIComponent(jobMatch[1]), user));
     if (
       req.method === 'POST' &&
       [

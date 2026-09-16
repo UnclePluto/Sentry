@@ -2,7 +2,7 @@
 
 本分支以 PostgreSQL 17 为唯一运行数据库。旧 `compose.yaml` 仅供仍运行旧镜像的生产环境及受控回退；新版本使用 `compose.postgres.yaml`。禁止把新镜像直接交给旧 `update.sh`，它没有 PostgreSQL 切换保障。
 
-当前生产切换尚未执行。ECS 的 RAM 角色元数据查询返回 404，OSS 实连、30 天恢复链实测和生产切换必须保留未完成状态。
+当前生产切换尚未执行。ECS 的 RAM 角色元数据查询返回 404，OSS 实连恢复和生产切换必须保留未完成状态。本地 PITR 与受控时间的 30 天恢复链测试已通过。
 
 ## 本地开发
 
@@ -62,6 +62,15 @@ sentry-pgbackrest restore --pg1-path=/restore/验收库 --type=time --target='�
 恢复后以 `PGDATA=/restore/验收库`、`archive_mode=off` 在隔离端口启动。必须等待目标时间回放成功，再核对账号、提交/作废状态、汇总和业务入口。缺失 WAL、授权失败或没有到达目标时间都不能当作成功；不使用跳过校验选项。恢复后原 Excel 不在备份中，待解析任务会明确失败要求重新上传；过期暂存由工作进程清理。
 
 `npm run test:recovery` 在本机临时容器上验证实际业务发布→基础备份→作废→WAL 归档→恢复到作废前；结束只销毁本轮随机命名资源。此测试使用本地备份仓库，不冒充 OSS 验证，也不代表生产 RPO/RTO。
+
+受控时间的保留链测试使用单独演练镜像，新增的 libfaketime 不进入正式数据库镜像：
+
+```sh
+docker build -f deploy/postgres/Dockerfile.rehearsal -t sentry-postgres:retention-rehearsal deploy/postgres
+SENTRY_POSTGRES_TEST_IMAGE=sentry-postgres:retention-rehearsal SENTRY_TEST_RETENTION=1 python3 scripts/postgres/rehearse-backup.py
+```
+
+脚本同时控制隔离 PostgreSQL 和备份进程时钟：第 35 天仍保留窗口起点依赖的第 0 天完整备份，第 45 天才清理它，保留第 10、35 天的备份链。最近完整本地演练约 48.18 秒，包括业务 PITR、恢复后登录、缺仓库／缺 WAL 失败和保留测试。这个耗时不包含 OSS 下载与生产环境准备，不能用作生产 RTO 结论。
 
 ## 日志与状态
 

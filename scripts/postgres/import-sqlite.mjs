@@ -40,6 +40,7 @@ const source = upgradeSnapshot(snapshotDir),
   db = connectDatabase(
     process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL,
   );
+const migrationStarted = Date.now();
 const report = {
   event: 'sqlite_migration',
   snapshot: snapshotDir,
@@ -126,11 +127,16 @@ try {
             "INSERT INTO jobs(id,import_id,owner_id,status) VALUES($1,$1,$2,'ready')",
             [row.id, row.submitted_by],
           );
-        } else
+        } else {
           await tx.query(
-            "UPDATE imports SET status='expired',payload=NULL WHERE id=$1",
+            "UPDATE imports SET status='expired',payload=NULL,expires_at=NULL WHERE id=$1",
             [row.id],
           );
+          await tx.query(
+            "INSERT INTO jobs(id,import_id,owner_id,status,created_at) VALUES($1,$1,$2,'expired',$3)",
+            [row.id, row.submitted_by || 'legacy-unknown', row.created_at],
+          );
+        }
       }
     }
     await tx.query(
@@ -200,6 +206,7 @@ try {
   report.error = e.message;
   throw e;
 } finally {
+  report.durationMs = Date.now() - migrationStarted;
   await writeFile(
     join(snapshotDir, 'report.json'),
     JSON.stringify(report, null, 2),

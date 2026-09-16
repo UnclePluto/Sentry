@@ -85,6 +85,11 @@ export default function UploadPage() {
     [cities, setCities] = useState<GeoProperties[]>([]),
     [counties, setCounties] = useState<GeoProperties[]>([]);
   const [jobId, setJobId] = useState('');
+  const [jobWatchVersion, setJobWatchVersion] = useState(0);
+  const watchJob = (id: string) => {
+    setJobId(id);
+    setJobWatchVersion((v) => v + 1);
+  };
   const [job, setJob] = useState<Job | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [page, setPage] = useState(1);
@@ -157,7 +162,7 @@ export default function UploadPage() {
       c.abort();
       clearTimeout(timer);
     };
-  }, [jobId, load]);
+  }, [jobId, jobWatchVersion, load]);
   useEffect(() => {
     api<GeoData>('/geo?code=100000')
       .then((g) =>
@@ -244,7 +249,7 @@ export default function UploadPage() {
           body: await file.arrayBuffer(),
         },
       );
-      setJobId(result.id);
+      watchJob(result.id);
       setJob(null);
       await loadTasks();
       setFile(null);
@@ -264,8 +269,7 @@ export default function UploadPage() {
       const id = preview.id;
       setPreview(null);
       setJob({ id, status: 'queued', phase: 'commit' } as Job);
-      setJobId('');
-      setTimeout(() => setJobId(id), 0);
+      watchJob(id);
       await loadTasks();
     } catch (e) {
       setError(errorMessage(e));
@@ -377,8 +381,7 @@ export default function UploadPage() {
                           size="sm"
                           onClick={() => {
                             setError('');
-                            setJobId('');
-                            setTimeout(() => setJobId(t.id), 0);
+                            watchJob(t.id);
                           }}
                         >
                           查看结果
@@ -413,8 +416,7 @@ export default function UploadPage() {
                             onClick={async () => {
                               try {
                                 await post('/jobs/retry', { id: t.id });
-                                setJobId('');
-                                setTimeout(() => setJobId(t.id), 0);
+                                watchJob(t.id);
                                 await loadTasks();
                               } catch (e) {
                                 setError(errorMessage(e));

@@ -1,8 +1,9 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, chmod } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { resolve, join } from 'node:path';
 const dir = resolve(process.argv[2] || 'data/postgres-secrets');
 await mkdir(dir, { recursive: true, mode: 0o700 });
+await chmod(dir, 0o700);
 const admin = randomBytes(32).toString('base64url'),
   runtime = randomBytes(32).toString('base64url');
 for (const [name, value] of Object.entries({

@@ -1,13 +1,14 @@
 # SENTRY 病原体流行监测平台
 
-本机运行的完整业务版本：Excel 上传与校验 → SQLite 标准化存储 → 立体地图和统计大盘。
+Excel 异步上传与校验 → PostgreSQL 标准化存储及持久化汇总 → 立体地图和统计大盘。数据库迁移、备份和部署见 [PostgreSQL 运维手册](deploy/POSTGRESQL.md)。当前分支已完成隔离实现与验收，正式生产切换仍等待 OSS 授权与恢复验证。
 
 ## 启动
 
-需要 Node.js 22.13+（建议 Node.js 24 LTS）与 npm。
+需要 Node.js 22.13+（生产镜像使用 Node.js 24）、npm 和 PostgreSQL 17。先创建数据库，在私有 `.env` 配置 `DATABASE_URL`；运行身份与迁移身份的分离方式见运维手册。
 
 ```bash
 npm ci
+npm run db:migrate
 npm run dev:all
 ```
 
@@ -20,6 +21,8 @@ npm run dev:all
 ```bash
 npm run build
 npm start
+# 另一个进程（生产 Compose 已独立配置）
+npm run worker
 ```
 
 使用 `dev:all` 或 `start` 启动完整的双入口平台。`npm run api` 仅用于单独调试数据服务，不要在完整平台已运行时重复启动。
@@ -27,10 +30,10 @@ npm start
 ## 使用
 
 1. 管理员登录后台，在“上传结果”选择省份、城市和检测日期（默认当天）；区县可选，不需要机构或坐标。
-2. 上传 `.xlsx`，点击“解析并预览”。只读取 Sheet1，先剔除 CT 为 `-`／`—` 或病原体为 N 的对照行，再校验有效记录。
-3. 核对有效结果行、有效试剂、阳性试剂、剔除行数及阳性率，点击“确认提交”。确认前不参与统计。
+2. 上传 `.xlsx`，点击“解析并预览”，文件受理后后台排队处理，关闭页面也可从任务列表找回结果。只读取 Sheet1，先剔除 CT 为 `-`／`—` 或病原体为 N 的对照行，再校验有效记录。
+3. 核对有效结果行、有效试剂、阳性试剂、剔除行数及阳性率，点击“确认提交”。确认前不参与统计；确认后异步入库，可持续查看状态。
 4. 在“我的提交记录”查看本人历史；超管看到“全部提交记录”。错误或误重复上传通过“作废整批”处理，保留原汇总、作废时间及操作人。
-5. 打开大盘“监测数据”，或访问 http://127.0.0.1:3000/?source=real 。按检测日期与病原体筛选，点击地图下钻。大盘每 30 秒刷新，作废后的下一次查询即排除该批次。
+5. 打开大盘“监测数据”，或访问 http://127.0.0.1:3000/?source=real 。按检测日期与病原体筛选，点击地图下钻。大盘每 20 秒刷新，作废后的下一次查询即排除该批次。
 
 演示数据独立标识，不混入真实统计。前后台入口完全分离。
 
@@ -59,23 +62,22 @@ npm start
 
 只识别 Sheet1 首 10 行中的表头：`batch`、`sam`、`PathogenWithReads`、`CT value`，可选 `中文`，保留已有表头别名。其他工作表完全忽略，不能作为数据或字典来源。缺少 Sheet1 或必填列明确报错。
 
-最大 8 MB、Sheet1 最多 50,000 行；解析在线程中限时、限制内存。服务不留存上传的原 Excel，预览和历史只返回汇总，不提供逐条检测明细或原文件下载。
+最大 8 MiB、Sheet1 最多 30,000 个非空数据行（含对照，不含表头）；独立工作进程内的解析线程限时、限内存，并在解压前检查 ZIP 展开大小。原 Excel 仅私有暂存，解析完成、校验失败或取消后删除；异常最长 24 小时清理。结构化预览保留 7 天，逾期清理明细但保留任务摘要。预览和历史只返回汇总，不提供逐条检测明细或原文件下载。
 
 参考样表按新规则：Sheet1 共 378 条结果，剔除 84 行，剩余 294 条有效结果、199 个有效试剂、199 个阳性试剂，阳性率 100%。这是剔除 N 阴性和横线对照后的结果，与旧口径的分母不同。
 
 ## 数据与升级
 
-- SQLite 保存标准化提交、试剂和病原体结果，默认数据库为 `data/sentry.sqlite`，可用 `SENTRY_DATA_DIR` 指定目录。
-- 提交记录保存地区、提交人快照、检测日期、提交时间、汇总和作废审计信息。原文件名可保留，原 Excel 内容不保存。
-- 从旧结构升级前，自动创建 `data/backups/before-v2-*.sqlite` 快照并检查完整性；备份仅当前系统用户可访问。迁移在事务中执行，失败不继续清理旧附件。
-- 旧提交若没有提交人信息，以“历史提交（归属未知）”保留为已作废历史，超管可查看；不猜测归属。演示数据按新口径剔除对照并保留隔离。
-- 数据库升级完成后，仅清理原上传目录内能对应到已结构化提交的旧 Excel；不扫描删除其他文件。升级前数据库快照包含原来的结构化数据，不包含 Excel 附件。
-- 恢复旧版时先停止服务，同时恢复旧版程序及升级前数据库快照；避免将旧快照与新版数据库的 WAL/SHM 混用。备份、数据库及管理员凭据均不纳入代码版本管理。
-- 规格与实施任务位于本地 `.scratch/excel-submission-rules/`。
+- PostgreSQL 是唯一运行数据库；必须设置 `DATABASE_URL` 或只读的 `DATABASE_URL_FILE`，不自动回退 SQLite。`SENTRY_DATA_DIR` 只用于私有暂存及初始账号文件。
+- 提交保存地区、归属、日期、汇总及作废审计，正式数据长期保留。任务持久化于 PostgreSQL，无 Redis 依赖；工作进程具有租约、有界重试、取消和过期清理。
+- 发布、作废和汇总版本在事务中生效，大盘从持久化批次贡献聚合，不将全部检测明细加载到 Node.js。
+- SQLite 仅作为离线迁移来源和受控旧版本回退来源。迁移命令先制作一致性快照，写入空的隔离 PostgreSQL 并核对统计；保留账号密码哈希及历史标识，不原地改写在线库。
+- 发布新库写入后，不允许简单退回旧 SQLite 丢弃新写入；具体维护切换门槛见运维手册。
+- 规格与任务位于 `.scratch/postgresql-production/`；验收及未完成事项见 [实施记录](.scratch/postgresql-production/implementation-report.md)。
 
 ## 技术与地图
 
-React + TypeScript / Vinext；shadcn/ui 后台；ECharts 趋势、热力图；deck.gl 直接绘制离线行政区和立体数据图层；Node.js HTTP API + SQLite。地图不依赖在线底图、地图密钥或外部字体。
+React + TypeScript / Vinext；shadcn/ui 后台；ECharts 趋势、热力图；deck.gl 直接绘制离线行政区和立体数据图层；Node.js HTTP API + 独立工作进程 + PostgreSQL。地图不依赖在线底图、地图密钥或外部字体。
 
 地图边界来源：[阿里云 DataV GeoAtlas](https://datav.aliyun.com/portal/school/atlas/area_selector)，缓存位于 `public/maps/`。已缓存全国及主要省市的 363 份边界文件，区县轮廓从城市缓存提取。台湾省当前只有全国底图中的省级轮廓，缺少下级边界。已下载区域在断网时可用；联网后执行 `npm run maps` 可补充或重试未下载边界。
 
@@ -88,7 +90,7 @@ React + TypeScript / Vinext；shadcn/ui 后台；ECharts 趋势、热力图；de
 ## 验证
 
 ```bash
-npm test
+TEST_DATABASE_URL=postgres://测试用户:密码@127.0.0.1:5432/测试库 npm test
 npm run typecheck
 npm run lint
 npm run build
@@ -97,16 +99,16 @@ npm run build
 带真实附件的接口验收（使用临时数据库，结束后自动删除）：
 
 ```bash
-SENTRY_FIXTURE_FILE='/绝对路径/检测结果.xlsx' npm test
+TEST_DATABASE_URL='postgres://测试用户:密码@127.0.0.1:5432/测试库' SENTRY_FIXTURE_FILE='/绝对路径/检测结果.xlsx' npm test
 ```
 
-另覆盖展示/管理入口隔离及地图锁定、变化识别与抬升逻辑。覆盖工作表去重、未检测分母、多病原体样本去重、未知 CT 拦截、报告日期覆盖规则、同日更新、撤回、筛选、不完整面板分母及 HTTP 上传/重启持久化流程。未进行浏览器点击或截图验收。
+覆盖账号与会话、异步上传、工作表校验、批次累计、各级地区、任务恢复、并发幂等、整批作废、旧库迁移及地图状态。已完成真实浏览器登录、上传、入库、历史、退出与停用会话验证。没有容量压测，现有全量 lint 遗留项记录在实施报告中。
 
 WebMCP 提供只读的 `read_surveillance_summary` 工具（浏览器支持时注册）；本机环境未进行 WebMCP 调用验证，不影响常规界面使用。
 
 ## 后续院内部署
 
-当前按要求仅绑定本机，未发布外网。院内多人访问时可由反向代理提供 HTTPS 并转发到本机前端端口，数据服务继续仅监听回环地址；后台已支持管理员与超管账号；后续可按医院要求增加机构权限隔离。使用 HTTPS 代理时，设置 `SENTRY_SECURE_COOKIE=1`，并通过 `SENTRY_TRUSTED_ORIGINS` 明确配置管理端域名（多个域名以逗号分隔）。不要直接开放 API 端口。
+已有域名 `sentry.floatnoise.com` 的线上版本仍待数据库切换；新部署默认只绑定回环端口。院内多人访问时可由反向代理提供 HTTPS 并转发到本机前端端口，数据服务继续仅监听回环地址；后台已支持管理员与超管账号；后续可按医院要求增加机构权限隔离。使用 HTTPS 代理时，设置 `SENTRY_SECURE_COOKIE=1`，并通过 `SENTRY_TRUSTED_ORIGINS` 明确配置管理端域名（多个域名以逗号分隔）。不要直接开放 API 端口。
 
 静态检查排除未修改的 shadcn 组件目录。React Compiler 的同步 effect 提示作为建议警告（本项目未启用 React Compiler）；业务代码保留类型检查、可访问性及正确性规则。
 
@@ -114,6 +116,6 @@ WebMCP 提供只读的 `read_surveillance_summary` 工具（浏览器支持时�
 
 ## Git 与阿里云部署
 
-代码仓库：<https://github.com/UnclePluto/Sentry>，主分支 `main`。容器镜像推送至阿里云 ACR，再由 ECS Docker Compose 拉取运行，详见 [部署说明](deploy/README.md)。
+代码仓库：<https://github.com/UnclePluto/Sentry>，主分支 `main`。容器镜像推送至阿里云 ACR，再由 ECS Docker Compose 拉取运行，详见 [PostgreSQL 部署说明](deploy/POSTGRESQL.md)。
 
 本机可使用 `ssh sentry-ecs` 连接服务器。GitHub main 推送运行检查与构建；发布 ACR 镜像需手动运行工作流并配置 ACR 专用凭据，服务器登录密码及 SSH 私钥不进入仓库。

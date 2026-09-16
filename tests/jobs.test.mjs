@@ -82,3 +82,36 @@ void test(
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
   },
 );
+
+void test(
+  '上传中断或原文件无法写盘时不登记受理任务',
+  { timeout: 40000 },
+  async (t) => {
+    const f = await fixture(t);
+    const http = await import('node:http');
+    const request = http.request(
+      f.baseUrl() +
+        '/imports/preview?province_code=420000&city_code=420100&date=2026-09-01&filename=interrupted.xlsx',
+      {
+        method: 'POST',
+        headers: { 'Content-Length': '100000', cookie: f.getCookie() },
+      },
+    );
+    request.on('error', () => {});
+    request.write(Buffer.alloc(100));
+    await new Promise((r) => setTimeout(r, 80));
+    request.destroy();
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal((await f.request('/jobs')).data.total, 0);
+    const { mkdir, chmod } = await import('node:fs/promises');
+    await mkdir(f.dir + '/uploads', { recursive: true });
+    await chmod(f.dir + '/uploads', 0o500);
+    try {
+      assert.equal((await f.previewRaw(await workbook(validRows))).status, 500);
+      assert.equal((await f.request('/jobs')).data.total, 0);
+      assert.equal((await readdir(f.dir + '/uploads')).length, 0);
+    } finally {
+      await chmod(f.dir + '/uploads', 0o700);
+    }
+  },
+);

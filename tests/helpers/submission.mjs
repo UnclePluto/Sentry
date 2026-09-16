@@ -28,7 +28,10 @@ export const validRows = [
   ['B', 'A', 'RSV', 30, '合胞病毒'],
   ['B', 'B', 'IAV', '阴性', '甲型流感'],
 ];
-export async function fixture(t, { legacy = false, demo = false } = {}) {
+export async function fixture(
+  t,
+  { legacy = false, demo = false, expiredPreview = false } = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), 'sentry-submissions-'));
   const pg = await testDatabase();
   let worker;
@@ -125,6 +128,60 @@ export async function fixture(t, { legacy = false, demo = false } = {}) {
       .prepare('INSERT INTO results VALUES(?,?,?,?,?,?,?,?)')
       .run(2, 2, 'N', 'negative', null, '阴性', '', 3);
     old.close();
+    if (expiredPreview) {
+      const { openStore, stage } =
+        await import('../../scripts/legacy/sqlite-store.mjs');
+      const source = openStore(dir);
+      stage(source, {
+        id: 'expired-preview',
+        fileName: '过期待确认.xlsx',
+        hash: 'hash',
+        location: {
+          province_code: '420000',
+          province: '湖北省',
+          city_code: '420100',
+          city: '武汉市',
+        },
+        date: '2026-09-01',
+        user: {
+          id: 'historical-admin',
+          username: 'historical',
+          display_name: '历史管理员',
+        },
+        payload: {
+          sheet: 'Sheet1',
+          records: [
+            {
+              batch: 'B',
+              sample: 'S',
+              code: 'IAV',
+              raw: '25',
+              name: '甲流',
+              status: 'positive',
+              ct: 25,
+              sourceRow: 2,
+            },
+          ],
+          names: { IAV: '甲流' },
+          warnings: [],
+          summary: {
+            rows: 1,
+            samples: 1,
+            tested: 1,
+            positive: 1,
+            excluded: 0,
+            rate: 1,
+          },
+        },
+      });
+      source
+        .prepare('UPDATE imports SET created_at=? WHERE id=?')
+        .run(
+          new Date(Date.now() - 10 * 86400000).toISOString(),
+          'expired-preview',
+        );
+      source.close();
+    }
     await mkdir(join(dir, 'uploads'));
     await promisify(execFile)(
       process.execPath,

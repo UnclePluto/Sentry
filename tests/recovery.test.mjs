@@ -128,3 +128,37 @@ void test(
     assert.equal(result.data.summary.tested, 1);
   },
 );
+
+void test(
+  '任务登记失败清理已落盘文件；删除失败在重启对账后恢复',
+  { timeout: 40000 },
+  async (t) => {
+    const f = await fixture(t),
+      db = connectDatabase(f.pg.url);
+    t.after(() => db.close());
+    await db.query(
+      "CREATE FUNCTION reject_import() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected'; END $$; CREATE TRIGGER reject_import BEFORE INSERT ON imports FOR EACH ROW EXECUTE FUNCTION reject_import()",
+    );
+    const rejected = await f.previewRaw(await workbook(validRows));
+    assert.equal(rejected.status, 500);
+    assert.equal((await readdir(f.dir + '/uploads')).length, 0);
+    assert.equal((await f.request('/jobs')).data.total, 0);
+    await db.query(
+      'DROP TRIGGER reject_import ON imports; DROP FUNCTION reject_import()',
+    );
+    await f.stopWorker();
+    const queued = await f.previewRaw(await workbook(validRows));
+    const { chmod } = await import('node:fs/promises');
+    await chmod(f.dir + '/uploads', 0o500);
+    t.after(() => chmod(f.dir + '/uploads', 0o700).catch(() => {}));
+    f.startWorker();
+    assert.equal((await f.waitJob(queued.data.id)).data.status, 'ready');
+    assert.equal((await readdir(f.dir + '/uploads')).length, 1);
+    await f.stopWorker();
+    await chmod(f.dir + '/uploads', 0o700);
+    f.startWorker();
+    for (let i = 0; i < 40 && (await readdir(f.dir + '/uploads')).length; i++)
+      await new Promise((r) => setTimeout(r, 50));
+    assert.equal((await readdir(f.dir + '/uploads')).length, 0);
+  },
+);
