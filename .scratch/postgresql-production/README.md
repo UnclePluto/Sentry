@@ -1,6 +1,6 @@
 # PostgreSQL 生产架构实施任务
 
-状态：01–08、10 已完成实现和本地隔离验收；09（真实 OSS 恢复）及 11（生产切换）仍阻塞。线上未切换。证据见 [实施与验收记录](implementation-report.md) 和 [双轴审查记录](review-report.md)。
+状态：01–11 全部完成，已于 2026-09-16 切换生产 PostgreSQL，武汉 OSS 真实恢复通过。证据见 [实施与验收记录](implementation-report.md) 和 [双轴审查记录](review-report.md)。
 
 来源规格：[PostgreSQL 生产架构、异步导入与可恢复部署](spec.md)。父规格保持原状态与正文不变。
 

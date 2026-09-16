@@ -1,5 +1,7 @@
 # 阿里云 ACR + ECS 部署
 
+生产已切换 PostgreSQL，请使用 [当前部署与恢复手册](POSTGRESQL.md)。下述旧单容器流程仅作历史记录，`compose.yaml` 和 `update.sh` 不适用于当前生产；禁止用它们重新启动旧 SQLite 版本。
+
 仓库：`https://github.com/UnclePluto/Sentry.git`。镜像：`crpi-vu9eu0iguupfgpzi.cn-guangzhou.personal.cr.aliyuncs.com/dypluto/sentry`。服务器：`47.122.114.59`，架构 `linux/amd64`。
 
 ## SSH

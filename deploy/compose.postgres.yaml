@@ -39,6 +39,8 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       SENTRY_BACKUP_ENV: ${SENTRY_BACKUP_ENV:-production}
       SENTRY_BACKUP_INSTANCE: ${SENTRY_BACKUP_INSTANCE:?请设置独立备份实例标识}
+      SENTRY_OSS_BUCKET: ${SENTRY_OSS_BUCKET:?请设置备份 Bucket}
+      SENTRY_OSS_ENDPOINT: ${SENTRY_OSS_ENDPOINT:?请设置与 Bucket 同地域的 OSS endpoint}
     secrets: [postgres_password, runtime_password]
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -96,6 +98,8 @@ services:
     environment:
       SENTRY_BACKUP_ENV: ${SENTRY_BACKUP_ENV:-production}
       SENTRY_BACKUP_INSTANCE: ${SENTRY_BACKUP_INSTANCE}
+      SENTRY_OSS_BUCKET: ${SENTRY_OSS_BUCKET}
+      SENTRY_OSS_ENDPOINT: ${SENTRY_OSS_ENDPOINT}
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - pgsocket:/var/run/postgresql

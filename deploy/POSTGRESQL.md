@@ -1,8 +1,8 @@
 # PostgreSQL 部署与恢复手册
 
-本分支以 PostgreSQL 17 为唯一运行数据库。旧 `compose.yaml` 仅供仍运行旧镜像的生产环境及受控回退；新版本使用 `compose.postgres.yaml`。禁止把新镜像直接交给旧 `update.sh`，它没有 PostgreSQL 切换保障。
+本分支以 PostgreSQL 17 为唯一运行数据库。旧 `compose.yaml` 仅保留为旧版本记录与受控恢复来源；新版本使用 `compose.postgres.yaml`。禁止把新镜像直接交给旧 `update.sh`，它没有 PostgreSQL 切换保障。
 
-当前生产切换尚未执行。ECS 的 RAM 角色元数据查询返回 404，OSS 实连恢复和生产切换必须保留未完成状态。本地 PITR 与受控时间的 30 天恢复链测试已通过。
+生产已于北京时间 2026-09-16 16:25:51 切换至 PostgreSQL，目录 `/opt/sentry-pg`。ECS 绑定 `SentryBackupRole`，武汉 `floatnoise-wh` 的真实 OSS 恢复已通过；首份正式完整备份为 `20260916-082211F`。旧库和镜像保留，但新库已经开放写入，禁止直接回退 SQLite。
 
 ## 本地开发
 
@@ -27,7 +27,7 @@
 
 构建应用镜像及 `deploy/postgres/Dockerfile` 数据库镜像，固定版本标签和镜像摘要。配置 `SENTRY_IMAGE`、`SENTRY_POSTGRES_IMAGE`、`SENTRY_SECRETS_DIR`、`SENTRY_DATA_PATH`（属主 UID 1000）、独立的 `SENTRY_BACKUP_INSTANCE` 和环境标识。不得让两个独立数据库写到同一备份前缀。
 
-先启动 `postgres`、完成 `migrate`，然后启动 `app worker`。`backup` 需要先通过 `docker compose ... exec -u postgres postgres sentry-pgbackrest stanza-create` 和 `check`，再启动调度。
+先启动 `postgres`、完成 `migrate`，然后启动 `app worker`。先执行 `docker compose ... exec -u postgres postgres sentry-pgbackrest stanza-create`，随后手动 `backup --type=full`，再执行 `check`；全部通过后才启动 `backup` 调度。`info` 的非零仓库状态现在会返回失败，空仓库需要手动初始化首份备份。
 
 迁移服务只应用版本化结构并核对校验和；应用启动仅验证版本，不自动建表或降级。`SENTRY_AUTO_MIGRATE=1` 仅供隔离测试。生产运行不设置。
 
@@ -43,13 +43,15 @@
 
 ## OSS 基础备份与 WAL
 
-桶 `oss-pai-k0brz1afnz8dtbcgt0-cn-shanghai`，HTTPS endpoint `oss-cn-shanghai.aliyuncs.com`，前缀 `sentry/postgresql/<环境>/<实例>/`。不改桶级 ACL、生命周期或版本控制，不上传 Excel。
+桶 `floatnoise-wh`，HTTPS endpoint `oss-cn-wuhan-lr.aliyuncs.com`，前缀 `sentry/postgresql/<环境>/<实例>/`。不改桶级 ACL、生命周期或版本控制，不上传 Excel。部署必须显式设置 `SENTRY_OSS_BUCKET=floatnoise-wh` 和 `SENTRY_OSS_ENDPOINT=oss-cn-wuhan-lr.aliyuncs.com`，签名地域由 endpoint 推导，缺配置直接失败，不回退到旧上海桶。
+
+角色 `SentryBackupRole` 绑定当前 ECS，策略 `SentryPostgresBackupPrefix` 的默认版本限定到武汉桶目录；策略模板见 `deploy/postgres/ram-policy.json`。主账户密钥不在服务器、镜像或项目中保存，正式运行只使用角色临时凭据。
 
 `sentry-pgbackrest` 使用 ECS IMDSv2 读取绑定角色的 STS 临时授权，传入 pgBackRest 进程环境，不写凭据到磁盘或命令参数。角色最小授权应只允许本前缀对象读取/写入/删除，以及带此前缀条件的 ListObjects；其他目录不授权。没有角色即失败，不回退到公开访问或聊天密钥。
 
 PostgreSQL `archive_mode=on`、`archive_timeout=300`；WAL 经 pgBackRest 校验后归档，失败保持非零退出并由 PG 重试，不能静默丢弃。每周完整备份、每日差异备份。pgBackRest 配置 `repo1-retention-full-type=time` / `repo1-retention-full=30`，由其保留窗口前所需完整备份及关联 WAL，不用 OSS 按对象年龄直接删除。全新部署不声称已有 30 天历史。
 
-参考：[pgBackRest 配置及保留规则](https://pgbackrest.org/configuration.html)、[OSS S3 临时令牌请求头](https://www.alibabacloud.com/help/tc/oss/user-guide/0002-00000009)。实际 OSS 协议兼容和 RAM 授权仍必须实连验证。
+参考：[pgBackRest 配置及保留规则](https://pgbackrest.org/configuration.html)、[OSS S3 临时令牌请求头](https://www.alibabacloud.com/help/tc/oss/user-guide/0002-00000009)。当前武汉桶的 OSS 协议兼容、角色授权、真实上传／下载恢复及错误令牌拒绝已实连通过；更换 Bucket 或角色后须重新验收。
 
 ## 隔离恢复
 
@@ -86,3 +88,23 @@ SENTRY_POSTGRES_TEST_IMAGE=sentry-postgres:retention-rehearsal SENTRY_TEST_RETEN
 4. 配置现有域名代理到新应用，检查 `/`、`/admin/login`、身份识别、地图。OSS check 与首次完整备份通过后，才执行 `npm run db:maintenance -- off` 并解除 Nginx 写入维护。
 5. 新库尚无新写入时，可关闭新应用并还原旧镜像、配置和旧库。开放写入后禁止直接退回 SQLite：先冻结新写入，保全 PG 数据与 WAL，优先修复或用新库回退兼容应用；若必须回迁，需另行核对新写入迁移方案。
 6. 留下时间、版本、备份位置及验收报告；密码不进入报告。无压测时明确容量及 P95 未验证；同机故障域、RPO 15 分钟和 RTO 1 小时仍是待演练的目标。
+
+## 已部署版本与日常检查
+
+应用摘要 `sha256:fd3748f489144391e37f5661347197c4890a607d41f6ef59eae11b8e0742450d`，数据库镜像摘要 `sha256:303d4fd6018223dc9e8678af733a094173eabe11f59df80940889ffafcebaa92`，均在指定 ACR 的 `dypluto/sentry`。
+
+```sh
+cd /opt/sentry-pg
+docker compose ps
+docker compose logs --tail 50 backup
+docker compose exec -T -u postgres postgres sentry-pgbackrest info --output=json
+docker compose exec -T -u postgres postgres sentry-pgbackrest check
+```
+
+`info` 除检查进程退出码，还检查 JSON 内 stanza 和仓库状态，避免 OSS 403 被误报正常。结构化日志不包含密钥。没有外部通知，需人工查看运行状态。
+
+真实 OSS 隔离演练：在已绑定角色的 ECS 上设置 `SENTRY_IMAGE`、`SENTRY_POSTGRES_IMAGE`、`SENTRY_OSS_BUCKET`、`SENTRY_OSS_ENDPOINT`，执行 `python3 scripts/postgres/rehearse-oss.py`。脚本创建随机容器、网络、卷及 `rehearsal` 前缀，使用虚构数据；清理结果必须为成功。OSS 演练备份保留为证据，仅允许针对记录的完整前缀清理。
+
+本次成功前缀 `sentry/postgresql/rehearsal/sentry-oss-7fac57bcdf`，完整演练 106.62 秒，恢复阶段 17.8 秒（预拉镜像、小数据、正常网络）。正式前缀 `sentry/postgresql/production/ecs-wuhan-20260916-main`。完整灾难场景的 15 分钟 RPO／1 小时 RTO、千万条与 P95 仍未验证。
+
+旧版本重启已在开放写入前验证。冻结只读副本保存在 `/opt/sentry-pg/rollback-20260916/source-data`，迁移报告在 `/opt/sentry-pg/migration-snapshots`。`rollback-before-writes.sh` 会因 `writes-opened` 标记拒绝直接退回旧库；后续恢复必须先冻结新写入并保全新库及 WAL。

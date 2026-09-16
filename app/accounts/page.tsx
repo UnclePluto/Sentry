@@ -98,7 +98,7 @@ export default function Accounts() {
           <div>
             <p className="eyebrow">ACCESS MANAGEMENT</p>
             <h1>管理员账号</h1>
-            <p>普通管理员可管理全部检测数据，账号权限由超管维护。</p>
+            <p>普通管理员仅管理本人的提交记录，超管可查看全部；账号由超管维护。</p>
           </div>
           <Button
             onClick={() => {

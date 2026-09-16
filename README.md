@@ -1,6 +1,6 @@
 # SENTRY 病原体流行监测平台
 
-Excel 异步上传与校验 → PostgreSQL 标准化存储及持久化汇总 → 立体地图和统计大盘。数据库迁移、备份和部署见 [PostgreSQL 运维手册](deploy/POSTGRESQL.md)。当前分支已完成隔离实现与验收，正式生产切换仍等待 OSS 授权与恢复验证。
+Excel 异步上传与校验 → PostgreSQL 标准化存储及持久化汇总 → 立体地图和统计大盘。数据库迁移、备份和部署见 [PostgreSQL 运维手册](deploy/POSTGRESQL.md)。生产已于 2026-09-16 切换 PostgreSQL，武汉 OSS 备份与隔离恢复已验证。
 
 ## 启动
 
