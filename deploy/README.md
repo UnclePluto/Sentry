@@ -41,7 +41,9 @@ docker login --username=dypluto crpi-vu9eu0iguupfgpzi.cn-guangzhou.personal.cr.a
 
 `SENTRY_IMAGE` 必须填写已推送的固定版本。容器以 uid 1000 运行，数据库绑定到 `/opt/sentry/data`，重建容器不删除数据。首次启动自动生成服务器独立的超级管理员，凭据位于 `/opt/sentry/data/initial-admin.json`，通过 SSH 在服务器上读取。没有将本机超管密码打包到镜像。
 
-当前前台域名为 `https://sentry.floatnoise.com`，Nginx 监听 80/443，HTTP 自动跳转 HTTPS。应用前台只监听宿主机 `127.0.0.1:13000`；后台只监听宿主机 `127.0.0.1:3002`。通过本机 SSH 隧道访问后台：
+当前前台域名为 `https://sentry.floatnoise.com`，Nginx 监听 80/443，HTTP 自动跳转 HTTPS。应用前台只监听宿主机 `127.0.0.1:13000`；后台只监听宿主机 `127.0.0.1:3002`。线上管理入口为 `https://sentry.floatnoise.com/admin`，使用已有管理员账号登录后上传 Excel。Nginx 将 `/admin/` 页面和接口转发到后台，其他路径仍由只读大盘处理，大盘页面不增加后台链接。
+
+也可通过本机 SSH 隧道访问后台：
 
 ```sh
 ssh -N -L 13002:127.0.0.1:3002 -i ~/.ssh/id_ed25519 root@47.122.114.59
@@ -61,7 +63,7 @@ DNS 的 `sentry.floatnoise.com` A 记录指向 `47.122.114.59`。服务器 `.env
 certbot --nginx -d sentry.floatnoise.com --non-interactive --agree-tos --register-unsafely-without-email --redirect
 ```
 
-Certbot 会在服务器配置中补充证书及 HTTPS 跳转；仓库的 `nginx.conf` 仅用于首次引导，不要覆盖已经生成的 HTTPS 配置。证书和私钥保留在服务器 `/etc/letsencrypt`，通过 `certbot.timer` 自动续期。可执行 `certbot renew --dry-run` 检查续期。后台继续通过 SSH 隧道访问，无需改变后台 Cookie 或信任来源配置。
+Certbot 会在服务器配置中补充证书及 HTTPS 跳转；仓库的 `nginx.conf` 仅用于首次引导，不要覆盖已经生成的 HTTPS 配置。证书和私钥保留在服务器 `/etc/letsencrypt`，通过 `certbot.timer` 自动续期。可执行 `certbot renew --dry-run` 检查续期。线上后台与大盘共用域名，服务器需设置 `SENTRY_TRUSTED_ORIGINS=https://sentry.floatnoise.com,http://127.0.0.1:13002,http://localhost:13002` 和 `SENTRY_SECURE_COOKIE=1`。后台 Cookie 仅通过安全连接发送。管理员浏览器从 `/admin` 进入，登录、上传、账号管理及接口都使用 `/admin/` 路径。
 
 ## 更新、备份与回退
 

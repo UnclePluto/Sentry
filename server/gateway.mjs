@@ -43,6 +43,11 @@ export function createGateway({
       res.writeHead(400).end();
       return;
     }
+    const adminPrefix =
+      mode === 'admin' && (path === '/admin' || path.startsWith('/admin/'))
+        ? '/admin'
+        : '';
+    if (adminPrefix) path = path.slice(adminPrefix.length) || '/';
     const isApi = path === '/api' || path.startsWith('/api/');
     if (mode === 'dashboard' && !['GET', 'HEAD'].includes(req.method)) {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end();
@@ -53,7 +58,7 @@ export function createGateway({
       return;
     }
     if (mode === 'admin' && path === '/') {
-      res.writeHead(302, { Location: '/upload' }).end();
+      res.writeHead(302, { Location: '/admin/upload' }).end();
       return;
     }
     const validPage =
@@ -78,7 +83,10 @@ export function createGateway({
         });
         if (session.status === 401) {
           res
-            .writeHead(302, { Location: '/login', 'Cache-Control': 'no-store' })
+            .writeHead(302, {
+              Location: adminPrefix + '/login',
+              'Cache-Control': 'no-store',
+            })
             .end();
           return;
         }
@@ -104,7 +112,7 @@ export function createGateway({
         hostname: target.hostname,
         port: target.port,
         method: req.method,
-        path: req.url,
+        path: isApi && adminPrefix ? req.url.replace(/^\/admin/, '') : req.url,
         headers: { ...cleanHeaders(req.headers), host: target.host },
       },
       (response) => {

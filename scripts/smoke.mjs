@@ -46,7 +46,7 @@ for (const path of ['/', '/login']) {
 for (const path of ['/upload', '/accounts']) {
   const response = await fetch(adminOrigin + path, { redirect: 'manual' });
   assert.equal(response.status, 302);
-  assert.equal(response.headers.get('location'), '/login');
+  assert.equal(response.headers.get('location'), new URL(adminOrigin).pathname.replace(/\/$/, '') + '/login');
 }
 for (const path of ['/api/institutions', '/api/imports', '/api/admins'])
   assert.equal((await fetch(adminOrigin + path)).status, 401);

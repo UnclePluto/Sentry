@@ -2,13 +2,21 @@ export async function api<T = unknown>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const response = await fetch('/api' + path, options);
+  const response = await fetch(
+    (typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/admin/')
+      ? '/admin/api'
+      : '/api') + path,
+    options,
+  );
   if (
     response.status === 401 &&
     typeof window !== 'undefined' &&
-    ['/upload', '/accounts'].includes(window.location.pathname)
+    ['/upload', '/accounts', '/admin/upload', '/admin/accounts'].includes(
+      window.location.pathname,
+    )
   )
-    window.location.replace('/login');
+    window.location.replace('/admin/login');
   const data: unknown = await response.json();
   if (!response.ok)
     throw new Error(

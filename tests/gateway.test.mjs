@@ -71,11 +71,24 @@ test('展示入口只读且没有管理页面，管理入口保留上传请求',
       'page:/assets/main.js',
     );
     const redirect = await fetch(adminUrl, { redirect: 'manual' });
-    assert.equal(redirect.headers.get('location'), '/upload');
+    assert.equal(redirect.headers.get('location'), '/admin/upload');
     assert.equal(
       await (await fetch(adminUrl + '/upload')).text(),
       'page:/upload',
     );
+    assert.equal(
+      await (await fetch(adminUrl + '/admin/login')).text(),
+      'page:/admin/login',
+    );
+    assert.equal((await fetch(displayUrl + '/admin/login')).status, 404);
+    const prefixedUpload = await (
+      await fetch(adminUrl + '/admin/api/imports/preview?filename=x.xlsx', {
+        method: 'POST',
+        body: 'excel-bytes',
+      })
+    ).json();
+    assert.equal(prefixedUpload.path, '/api/imports/preview?filename=x.xlsx');
+    assert.equal(prefixedUpload.body, 'excel-bytes');
     const upload = await (
       await fetch(adminUrl + '/api/imports/preview?filename=test.xlsx', {
         method: 'POST',

@@ -44,13 +44,13 @@ export function AdminSession({
     return (
       <main className="admin auth-wait">
         {error || '正在验证登录状态…'}
-        {error && <a href="/login">前往登录</a>}
+        {error && <a href="/admin/login">前往登录</a>}
       </main>
     );
   if (superOnly && user.role !== 'superadmin')
     return (
       <main className="admin auth-wait">
-        此页面仅限超级管理员使用。<a href="/upload">返回数据管理</a>
+        此页面仅限超级管理员使用。<a href="/admin/upload">返回数据管理</a>
       </main>
     );
   return <Session.Provider value={user}>{children}</Session.Provider>;
@@ -68,7 +68,7 @@ export function AdminHeader() {
     setError('');
     try {
       await post('/auth/password', { currentPassword: old, password });
-      window.location.assign('/login?changed=1');
+      window.location.assign('/admin/login?changed=1');
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -79,7 +79,7 @@ export function AdminHeader() {
     setBusy(true);
     try {
       await post('/auth/logout', {});
-      window.location.assign('/login');
+      window.location.assign('/admin/login');
     } catch (e) {
       setError(errorMessage(e));
       setOpen(true);
@@ -97,8 +97,10 @@ export function AdminHeader() {
           </strong>
         </div>
         <nav>
-          <a href="/upload">数据管理</a>
-          {user?.role === 'superadmin' && <a href="/accounts">管理员账号</a>}
+          <a href="/admin/upload">数据管理</a>
+          {user?.role === 'superadmin' && (
+            <a href="/admin/accounts">管理员账号</a>
+          )}
         </nav>
         <div className="admin-identity">
           <span>
