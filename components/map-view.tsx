@@ -172,6 +172,11 @@ export default function MapView({
     () => allFeatures.filter((f) => f.properties.adcode),
     [allFeatures],
   );
+  // deck.gl 以 data 引用判断几何是否变化；悬停只应更新边框属性。
+  const featureCollection = useMemo<GeoData>(
+    () => ({ type: 'FeatureCollection', features: allFeatures }),
+    [allFeatures],
+  );
   const lookup = useMemo(() => new Map(data.map((r) => [r.code, r])), [data]);
   const scanCodes = useMemo(() => {
     return features
@@ -189,6 +194,7 @@ export default function MapView({
   const active =
     hovered || scanCodes[scan % Math.max(1, scanCodes.length)] || '';
   const is3d = webgl && mapMode === '3d';
+  const transitioning = Boolean(navigation || entering);
   const base = !is3d
     ? 0
     : region.level === 'country'
@@ -215,7 +221,11 @@ export default function MapView({
         : {},
     [allFeatures, base, lookup, regions],
   );
-  const appearance = useMapAppearance(targets, reduced);
+  // 2D 过渡由 SVG 快照承担，隐藏场景无需再逐帧插值颜色。
+  const appearance = useMapAppearance(
+    targets,
+    reduced || (!is3d && transitioning),
+  );
   const elevation = (code: string) =>
     is3d ? (appearance[code]?.height ?? 0) : 0;
   const fillColor = (code: string) =>
@@ -326,145 +336,172 @@ export default function MapView({
     features.find((f) => String(f.properties.adcode) === active)?.properties
       .name;
   const duration = reduced || !is3d ? 0 : 1250;
-  const layerTriggers = [data, active, changed, base, appearance];
+  const geometryTriggers = [base, appearance];
+  const borderColorTriggers = [active, changed];
   const layers = [
-    new GeoJsonLayer<GeoProperties>({
-      id: 'map-foundation',
-      visible: is3d,
-      data: { type: 'FeatureCollection', features: allFeatures },
-      filled: true,
-      stroked: true,
-      getFillColor: [8, 24, 45, 240],
-      getLineColor: [29, 69, 96, 200],
-      lineWidthMinPixels: 0.5,
-      pickable: false,
-    }),
-    new GeoJsonLayer<GeoProperties>({
-      id: 'flat-region-fills',
-      visible: !is3d,
-      data: { type: 'FeatureCollection', features: allFeatures },
-      filled: true,
-      stroked: true,
-      extruded: false,
-      pickable: true,
-      // 各层级直接描绘当前行政区 GeoJSON 边界，不依赖 3D 高程轮廓。
-      getLineColor: (feature) => {
-        const code = String(feature.properties.adcode);
-        return code === active
-          ? [153, 242, 255, 255]
-          : changed.includes(code)
-            ? [218, 166, 255, 255]
-            : [104, 181, 211, 235];
-      },
-      getLineWidth: (feature) =>
-        String(feature.properties.adcode) === active ? 1.35 : 0.85,
-      lineWidthUnits: 'pixels',
-      lineWidthMinPixels: 0.75,
-      lineWidthMaxPixels: 1.5,
-      lineJointRounded: true,
-      getFillColor: (feature) => {
-        const code = String(feature.properties.adcode);
-        return fillColor(code);
-      },
-      updateTriggers: {
-        getFillColor: [appearance, data],
-        getLineColor: [active, changed],
-        getLineWidth: [active],
-      },
-      parameters: { depthCompare: 'always', depthWriteEnabled: false },
-      onClick: ({ object }) => object && choose(object as GeoFeature),
-      onHover: ({ object }) =>
-        setHovered(object ? String(object.properties.adcode) : null),
-    }),
-    new PolygonLayer<Plate>({
-      id: 'floating-region-plates',
-      visible: is3d,
-      data: plates,
-      pickable: true,
-      extruded: is3d,
-      wireframe: false,
-      getPolygon: (p) =>
-        p.rings.map((ring) => ring.map(([x, y]) => [x, y, elevation(p.code)])),
-      getElevation: thickness,
-      getFillColor: (p) => fillColor(p.code),
-      material: {
-        ambient: 0.8,
-        diffuse: 0.45,
-        shininess: 48,
-        specularColor: [30, 100, 180],
-      },
-      updateTriggers: {
-        getPolygon: layerTriggers,
-        getFillColor: layerTriggers,
-      },
-      onClick: ({ object }) => object && choose(object.feature),
-      onHover: ({ object }) => setHovered(object?.code || null),
-    }),
-    new PathLayer<Border>({
-      id: 'province-edge-glow',
-      visible: is3d,
-      data: borders,
-      getPath: (b) =>
-        b.points.map(
-          ([x, y]) =>
-            [x, y, elevation(b.code) + thickness + base * 0.012] as [
-              number,
-              number,
-              number,
-            ],
-        ),
-      getColor: (b) =>
-        b.code === active
-          ? [61, 232, 255, 90]
-          : changed.includes(b.code)
-            ? [206, 132, 255, 75]
-            : [23, 149, 220, 30],
-      getWidth: 2,
-      widthUnits: 'pixels',
-      widthMinPixels: 1,
-      jointRounded: true,
-      capRounded: true,
-      transitions: { getColor: duration },
-      updateTriggers: { getPath: layerTriggers, getColor: layerTriggers },
-      parameters: { depthCompare: 'always' },
-    }),
-    new PathLayer<Border>({
-      id: 'province-division-lines',
-      visible: is3d,
-      data: borders,
-      getPath: (b) =>
-        b.points.map(
-          ([x, y]) =>
-            [x, y, elevation(b.code) + thickness + base * 0.018] as [
-              number,
-              number,
-              number,
-            ],
-        ),
-      getColor: (b) =>
-        b.code === active
-          ? [131, 245, 255, 255]
-          : changed.includes(b.code)
-            ? [218, 154, 255, 255]
-            : [46, 157, 204, 240],
-      getWidth: 0.65,
-      widthUnits: 'pixels',
-      widthMinPixels: 0.5,
-      jointRounded: true,
-      capRounded: true,
-      transitions: { getColor: duration },
-      updateTriggers: { getPath: layerTriggers, getColor: layerTriggers },
-      parameters: { depthCompare: 'always' },
-    }),
+    ...(is3d
+      ? [
+          new GeoJsonLayer<GeoProperties>({
+            id: 'map-foundation',
+            visible: is3d,
+            data: featureCollection,
+            filled: true,
+            stroked: true,
+            getFillColor: [8, 24, 45, 240],
+            getLineColor: [29, 69, 96, 200],
+            lineWidthMinPixels: 0.5,
+            pickable: false,
+          }),
+        ]
+      : []),
+    ...(!is3d
+      ? [
+          new GeoJsonLayer<GeoProperties>({
+            id: 'flat-region-fills',
+            visible: !is3d,
+            data: featureCollection,
+            filled: true,
+            stroked: true,
+            extruded: false,
+            pickable: true,
+            // 各层级直接描绘当前行政区 GeoJSON 边界，不依赖 3D 高程轮廓。
+            getLineColor: (feature) => {
+              const code = String(feature.properties.adcode);
+              return code === active
+                ? [153, 242, 255, 255]
+                : changed.includes(code)
+                  ? [218, 166, 255, 255]
+                  : [104, 181, 211, 235];
+            },
+            getLineWidth: (feature) =>
+              String(feature.properties.adcode) === active ? 1.35 : 0.85,
+            lineWidthUnits: 'pixels',
+            lineWidthMinPixels: 0.75,
+            lineWidthMaxPixels: 1.5,
+            lineJointRounded: true,
+            getFillColor: (feature) => {
+              const code = String(feature.properties.adcode);
+              return fillColor(code);
+            },
+            updateTriggers: {
+              getFillColor: [appearance, data],
+              getLineColor: [active, changed],
+              getLineWidth: [active],
+            },
+            parameters: { depthCompare: 'always', depthWriteEnabled: false },
+            onClick: ({ object }) => object && choose(object as GeoFeature),
+            onHover: ({ object }) =>
+              setHovered(object ? String(object.properties.adcode) : null),
+          }),
+        ]
+      : []),
+    ...(is3d
+      ? [
+          new PolygonLayer<Plate>({
+            id: 'floating-region-plates',
+            visible: is3d,
+            data: plates,
+            pickable: true,
+            extruded: is3d,
+            wireframe: false,
+            getPolygon: (p) =>
+              p.rings.map((ring) =>
+                ring.map(([x, y]) => [x, y, elevation(p.code)]),
+              ),
+            getElevation: thickness,
+            getFillColor: (p) => fillColor(p.code),
+            material: {
+              ambient: 0.8,
+              diffuse: 0.45,
+              shininess: 48,
+              specularColor: [30, 100, 180],
+            },
+            updateTriggers: {
+              getPolygon: geometryTriggers,
+              getFillColor: [appearance, data],
+            },
+            onClick: ({ object }) => object && choose(object.feature),
+            onHover: ({ object }) => setHovered(object?.code || null),
+          }),
+          new PathLayer<Border>({
+            id: 'province-edge-glow',
+            visible: is3d,
+            data: borders,
+            getPath: (b) =>
+              b.points.map(
+                ([x, y]) =>
+                  [x, y, elevation(b.code) + thickness + base * 0.012] as [
+                    number,
+                    number,
+                    number,
+                  ],
+              ),
+            getColor: (b) =>
+              b.code === active
+                ? [61, 232, 255, 90]
+                : changed.includes(b.code)
+                  ? [206, 132, 255, 75]
+                  : [23, 149, 220, 30],
+            getWidth: 2,
+            widthUnits: 'pixels',
+            widthMinPixels: 1,
+            jointRounded: true,
+            capRounded: true,
+            transitions: { getColor: duration },
+            updateTriggers: {
+              getPath: geometryTriggers,
+              getColor: borderColorTriggers,
+            },
+            parameters: { depthCompare: 'always' },
+          }),
+          new PathLayer<Border>({
+            id: 'province-division-lines',
+            visible: is3d,
+            data: borders,
+            getPath: (b) =>
+              b.points.map(
+                ([x, y]) =>
+                  [x, y, elevation(b.code) + thickness + base * 0.018] as [
+                    number,
+                    number,
+                    number,
+                  ],
+              ),
+            getColor: (b) =>
+              b.code === active
+                ? [131, 245, 255, 255]
+                : changed.includes(b.code)
+                  ? [218, 154, 255, 255]
+                  : [46, 157, 204, 240],
+            getWidth: 0.65,
+            widthUnits: 'pixels',
+            widthMinPixels: 0.5,
+            jointRounded: true,
+            capRounded: true,
+            transitions: { getColor: duration },
+            updateTriggers: {
+              getPath: geometryTriggers,
+              getColor: borderColorTriggers,
+            },
+            parameters: { depthCompare: 'always' },
+          }),
+        ]
+      : []),
   ];
+  // 2D 投影仍供下钻动画使用，但不受颜色、悬停或轮巡变化影响。
+  const surfaceAppearance = is3d ? appearance : null;
   const surfaces = useMemo<ScreenSurface[]>(() => {
     const projection = new WebMercatorViewport({
-      ...view,
+      longitude: view.longitude,
+      latitude: view.latitude,
+      zoom: view.zoom,
+      pitch: view.pitch,
+      bearing: view.bearing,
       width: size.width,
       height: size.height,
     });
     return plates.map((plate) => {
-      const z = elevation(plate.code) + thickness;
+      const z = (surfaceAppearance?.[plate.code]?.height ?? 0) + thickness;
       const rings = plate.rings.map((ring) =>
         ring.map(
           ([x, y]) => projection.project([x, y, z]).slice(0, 2) as ScreenPoint,
@@ -495,12 +532,7 @@ export default function MapView({
     });
   }, [
     plates,
-    appearance,
-    is3d,
-    active,
-    changed,
-    data,
-    base,
+    surfaceAppearance,
     thickness,
     view.longitude,
     view.latitude,
@@ -586,7 +618,6 @@ export default function MapView({
     );
     return () => animation.cancel();
   }, [geo, navigation, arrival]);
-  const transitioning = Boolean(navigation || entering);
   return (
     <div
       ref={root}

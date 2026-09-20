@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ScreenSurface } from '@/lib/map-labels';
 
 export type MapJourney = { direction: 'in' | 'out'; focusCode: string };
@@ -23,8 +23,10 @@ export function MapTransition({
   const svg = useRef<SVGSVGElement>(null);
   const done = useRef(onComplete);
   done.current = onComplete;
-  // 一次过渡使用开始时的几何快照，避免轮巡或数据刷新改变飞出方向。
-  const snapshot = useRef(surfaces).current;
+  // 几何和颜色一起冻结，隐藏地图更新不能改变正在播放的过渡快照。
+  const [snapshot] = useState(() =>
+    surfaces.map((surface) => ({ ...surface, fill: color(surface.code) })),
+  );
   useEffect(() => {
     if (!svg.current) return;
     const center = { x: width / 2, y: height / 2 };
@@ -126,7 +128,7 @@ export function MapTransition({
                     .join(' ') + 'Z',
               )
               .join(' ')}
-            fill={color(surface.code)}
+            fill={surface.fill}
             fillRule="evenodd"
             stroke="#69c5e8"
             strokeWidth=".65"
