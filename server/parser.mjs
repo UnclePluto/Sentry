@@ -33,6 +33,27 @@ const aliases = {
   ct: ['ct value', 'ct', 'ct值'],
   name: ['中文', '病原体名称'],
 };
+function findHeader(sheet, required) {
+  for (let n = 1; n <= Math.min(10, sheet.rowCount); n++) {
+    const values = sheet.getRow(n).values.map((value) =>
+      text(value).toLowerCase(),
+    );
+    const found = Object.fromEntries(
+      Object.entries(aliases).map(([key, names]) => [
+        key,
+        values.findIndex((value) => names.includes(value)),
+      ]),
+    );
+    if (required.every((key) => found[key] > 0))
+      return { cols: found, header: n };
+  }
+}
+
+const numeric = (value) =>
+  value &&
+  /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value) &&
+  Number.isFinite(Number(value));
+
 export async function parseWorkbook(bytes) {
   checkArchive(bytes);
   const book = new ExcelJS.Workbook();
@@ -42,93 +63,193 @@ export async function parseWorkbook(bytes) {
     throw new Error('无法读取 Excel，请上传有效的 .xlsx 文件。');
   }
   const sheet = book.getWorksheet('Sheet1');
-  if (!sheet) throw new Error('缺少 Sheet1 工作表，请将检测结果放在 Sheet1。');
+  const panelSheet = book.getWorksheet('Sheet2');
+  if (!sheet)
+    throw new Error('缺少 Sheet1 工作表，请将样本结果放在 Sheet1。');
+  if (!panelSheet)
+    throw new Error('缺少 Sheet2 工作表，请将本次检测范围放在 Sheet2。');
 
-  let cols, header;
-  for (let n = 1; n <= Math.min(10, sheet.rowCount); n++) {
-    const values = sheet.getRow(n).values.map((v) => text(v).toLowerCase());
-    const found = Object.fromEntries(
-      Object.entries(aliases).map(([key, names]) => [
-        key,
-        values.findIndex((v) => names.includes(v)),
-      ]),
-    );
-    if (['batch', 'sample', 'pathogen', 'ct'].every((k) => found[k] > 0)) {
-      cols = found;
-      header = n;
-      break;
-    }
-  }
-  if (!cols)
-    throw new Error('Sheet1 需要 batch、sam、PathogenWithReads、CT value 列。');
-  const records = [],
+  const panelHeader = findHeader(panelSheet, ['pathogen']);
+  if (!panelHeader)
+    throw new Error('Sheet2 需要 PathogenWithReads 病原体代码列。');
+  const panel = [],
+    names = {},
+    panelCodes = new Map(),
     errors = [],
-    names = { ...KNOWN_NAMES },
     warnings = [],
+    warningKeys = new Set();
+  let panelRows = 0;
+  for (
+    let n = panelHeader.header + 1;
+    n <= panelSheet.rowCount;
+    n++
+  ) {
+    const row = panelSheet.getRow(n);
+    const get = (key) =>
+      panelHeader.cols[key] > 0
+        ? text(row.getCell(panelHeader.cols[key]).value)
+        : '';
+    const code = get('pathogen'),
+      rawName = get('name');
+    if (![code, rawName].some(Boolean)) continue;
+    if (++panelRows > 1000)
+      throw new Error('Sheet2 数据不能超过 1,000 个非空行（不含表头）。');
+    if (!code) {
+      errors.push(`Sheet2 第 ${n} 行：病原体代码不能为空。`);
+      continue;
+    }
+    if ([code, rawName].some((value) => value.length > 200)) {
+      errors.push(`Sheet2 第 ${n} 行：代码或名称不能超过 200 个字符。`);
+      continue;
+    }
+    if (code === 'N') {
+      errors.push(`Sheet2 第 ${n} 行：N 不是病原体，不能放入检测范围。`);
+      continue;
+    }
+    if (panelCodes.has(code)) {
+      errors.push(
+        `Sheet2 第 ${panelCodes.get(code)}、${n} 行：病原体 ${code} 重复。`,
+      );
+      continue;
+    }
+    panelCodes.set(code, n);
+    const name = rawName || KNOWN_NAMES[code] || code;
+    names[code] = name;
+    panel.push({ code, name, rawName, sourceRow: n });
+  }
+  if (!panel.length && !errors.length)
+    errors.push('Sheet2 没有检测病原体，不能提交。');
+
+  const resultHeader = findHeader(sheet, ['batch', 'sample', 'pathogen']);
+  if (!resultHeader)
+    throw new Error('Sheet1 需要 batch、sam、PathogenWithReads 列。');
+  const samplesByCode = new Map(),
+    detections = [],
     seen = new Map();
-  let excluded = 0,
-    nonempty = 0;
-  for (let n = header + 1; n <= sheet.rowCount; n++) {
+  let nonempty = 0;
+  for (let n = resultHeader.header + 1; n <= sheet.rowCount; n++) {
     const row = sheet.getRow(n);
     const get = (key) =>
-      cols[key] > 0 ? text(row.getCell(cols[key]).value) : '';
+      resultHeader.cols[key] > 0
+        ? text(row.getCell(resultHeader.cols[key]).value)
+        : '';
     const batch = get('batch'),
       sample = get('sample'),
       code = get('pathogen'),
       raw = get('ct'),
-      name = get('name');
-    if (![batch, sample, code, raw, name].some(Boolean)) continue;
+      rawName = get('name');
+    if (![batch, sample, code, raw, rawName].some(Boolean)) continue;
     if (++nonempty > 30000)
       throw new Error(
-        'Sheet1 数据不能超过 30,000 个非空行（含对照行，不含表头）。',
+        'Sheet1 数据不能超过 30,000 个非空行（不含表头）。',
       );
-    if (code === 'N' || raw === '-' || raw === '—') {
-      excluded++;
-      continue;
-    }
     if (!batch || !sample || !code) {
-      errors.push(`Sheet1 第 ${n} 行：检测批次、试剂标识和病原体不能为空。`);
+      errors.push(`Sheet1 第 ${n} 行：batch、sam 和病原体不能为空。`);
       continue;
     }
-    if ([batch, sample, code, name].some((v) => v.length > 200)) {
+    if ([batch, sample, code, rawName].some((value) => value.length > 200)) {
       errors.push(`Sheet1 第 ${n} 行：标识或名称不能超过 200 个字符。`);
       continue;
     }
-    let status,
-      ct = null;
-    if (raw === '阴性') status = 'negative';
-    else if (
-      raw &&
-      /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(raw) &&
-      Number.isFinite(Number(raw))
-    ) {
-      status = 'positive';
-      ct = Number(raw);
-    } else {
+    const existing = samplesByCode.get(sample);
+    if (existing && existing.batch !== batch) {
+      errors.push(`Sheet1 第 ${n} 行：同一 sam 的 batch 不一致。`);
+      continue;
+    }
+    const resultKind = code === 'N' ? 'all_negative' : 'has_positive';
+    if (existing && existing.resultKind !== resultKind) {
+      errors.push(`Sheet1 第 ${n} 行：N 与阳性结果冲突。`);
+      continue;
+    }
+    const key = JSON.stringify([sample, code]);
+    if (seen.has(key)) {
       errors.push(
-        `Sheet1 第 ${n} 行 CT 值“${raw.slice(0, 40)}”无法识别，请填数值或阴性。`,
+        `Sheet1 第 ${seen.get(key)}、${n} 行：样本 ${sample} 与病原体 ${code} 重复。`,
       );
       continue;
     }
-    const key = JSON.stringify([batch, sample, code]);
-    if (seen.has(key))
-      errors.push(
-        `Sheet1 第 ${seen.get(key)}、${n} 行重复：${batch} / ${sample} / ${code}，请修改后重新上传。`,
-      );
-    else seen.set(key, n);
-    if (!Object.hasOwn(names, code)) names[code] = name || code;
-    records.push({ batch, sample, code, raw, name, status, ct, sourceRow: n });
+    seen.set(key, n);
+    if (!existing)
+      samplesByCode.set(sample, {
+        sample,
+        batch,
+        resultKind,
+        sourceRow: n,
+      });
+
+    if (code === 'N') {
+      if (!['', '-', '—', '阴性'].includes(raw))
+        errors.push(`Sheet1 第 ${n} 行：N 与 CT 值“${raw.slice(0, 40)}”冲突。`);
+      continue;
+    }
+    if (!panelCodes.has(code)) {
+      errors.push(`Sheet1 第 ${n} 行：病原体 ${code} 不在 Sheet2 检测范围中。`);
+      continue;
+    }
+    let ct = null;
+    if (!['', '-', '—'].includes(raw)) {
+      if (!numeric(raw)) {
+        errors.push(
+          `Sheet1 第 ${n} 行：阳性结果与 CT 值“${raw.slice(0, 40)}”冲突。`,
+        );
+        continue;
+      }
+      ct = Number(raw);
+    }
+    const name = names[code];
+    if (rawName && rawName !== name) {
+      const warningKey = `${code}\0${rawName}`;
+      if (!warningKeys.has(warningKey)) {
+        warningKeys.add(warningKey);
+        warnings.push(
+          `Sheet1 第 ${n} 行：病原体 ${code} 的名称“${rawName}”与 Sheet2 的“${name}”不同，展示名称以 Sheet2 为准。`,
+        );
+      }
+    }
+    detections.push({
+      sample,
+      code,
+      ct,
+      raw,
+      name: rawName,
+      sourceRow: n,
+    });
   }
   if (errors.length) throw new Error(errors.slice(0, 12).join('\n'));
-  if (!records.length) throw new Error('Sheet1 没有有效检测数据，不能提交。');
-  if (excluded)
-    warnings.push(`已剔除 ${excluded} 行对照数据（CT 为横线或病原体为 N）。`);
+  const samples = [...samplesByCode.values()];
+  if (!samples.length) throw new Error('Sheet1 没有样本数据，不能提交。');
   return {
+    formatVersion: 2,
     sheet: 'Sheet1',
-    records,
+    sheets: ['Sheet1', 'Sheet2'],
+    panel,
+    samples,
+    detections,
     names,
     warnings,
-    summary: { ...summarize(records), excluded },
+    summary: summarizeSamples(samples, detections, panel, nonempty),
+  };
+}
+export function summarizeSamples(samples, detections, panel, rows) {
+  const positive = samples.filter(
+    (sample) => sample.resultKind === 'has_positive',
+  ).length;
+  const detectedPathogens = new Set(
+    detections.map((detection) => detection.code),
+  ).size;
+  return {
+    rows,
+    samples: samples.length,
+    tested: samples.length,
+    positive,
+    negative: samples.length - positive,
+    untested: 0,
+    rate: samples.length ? positive / samples.length : null,
+    batches: new Set(samples.map((sample) => sample.batch)).size,
+    excluded: 0,
+    testedPathogens: panel.length,
+    detectedPathogens,
+    pathogens: detectedPathogens,
   };
 }
 export function summarize(records) {
