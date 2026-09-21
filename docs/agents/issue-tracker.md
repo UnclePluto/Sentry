@@ -14,6 +14,8 @@
 
 ## 当前规格
 
+- [双 Sheet 导入、样本维度统计与大盘调整](../../.scratch/sample-pathogen-model/spec.md)
+- [样本统计方案 A 实施计划与任务](../../.scratch/sample-pathogen-model/plan.md)
 - [Excel 提交、统计口径与历史管理重构](../../.scratch/excel-submission-rules/spec.md)
 - [PostgreSQL 生产架构、异步导入与可恢复部署](../../.scratch/postgresql-production/spec.md)
 - [PostgreSQL 生产架构实施任务（11 张）](../../.scratch/postgresql-production/README.md)
