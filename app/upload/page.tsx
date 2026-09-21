@@ -142,7 +142,7 @@ export default function UploadPage() {
         } else if (j.status === 'succeeded') {
           setPreview(null);
           setBusy(false);
-          setSuccess(`提交成功：${j.added} 个有效试剂已入库。`);
+          setSuccess(`提交成功：${j.added} 份样本已入库。`);
           await load();
         } else if (['failed', 'expired', 'cancelled'].includes(j.status)) {
           setPreview(null);
@@ -540,7 +540,7 @@ export default function UploadPage() {
                   <span className="step-number">02</span>
                   <div>
                     <h2>上传检测 Excel</h2>
-                    <p>只读取 Sheet1，其他工作表不参与解析。</p>
+                    <p>Sheet1 为样本结果，Sheet2 为本次检测病原体范围。</p>
                   </div>
                 </div>
                 <div
@@ -566,7 +566,10 @@ export default function UploadPage() {
                         ? '解析已完成，请核对下方汇总'
                         : '将 Excel 拖到这里'}
                   </strong>
-                  <p>支持 .xlsx，最大 8 MB；Sheet1 最多 30,000 个非空数据行</p>
+                  <p>
+                    支持 .xlsx，最大 8 MB；Sheet1 最多 30,000 行，Sheet2 最多
+                    1,000 行
+                  </p>
                   <input
                     ref={input}
                     type="file"
@@ -605,7 +608,7 @@ export default function UploadPage() {
                 <div className="guide-flow">
                   <span>
                     <FileSpreadsheet />
-                    读取 Sheet1
+                    读取 Sheet1 + Sheet2
                   </span>
                   <i>↓</i>
                   <span>
@@ -620,11 +623,11 @@ export default function UploadPage() {
                 </div>
                 <div className="rules">
                   <h3>检测结果口径</h3>
-                  <p>数值 CT：阳性；“阴性”：阴性。</p>
-                  <p>CT 为 -／— 或病原体为 N：整行剔除。</p>
+                  <p>Sheet1 中 N 表示该样本对 Sheet2 全部病原体均为阴性。</p>
+                  <p>检出一种病原体写一行；阳性 CT 可为数值、空白或横线。</p>
                   <small>
-                    同一试剂可检测多个病原体。有效行的 batch + sam +
-                    病原体重复时，必须修正后重传。
+                    单个文件内 sam 必须唯一，同一样本可以有多条阳性检出。
+                    不同上传独立累计；纠错请整批作废后重新上传。
                   </small>
                 </div>
                 <p className="field-hint">
@@ -655,11 +658,15 @@ export default function UploadPage() {
                 </div>
                 <div className="preview-stats">
                   {[
-                    ['有效结果行', number(preview.summary.rows)],
-                    ['有效试剂', number(preview.summary.tested)],
-                    ['阳性试剂', number(preview.summary.positive)],
-                    ['剔除行', number(preview.summary.excluded)],
-                    ['试剂阳性率', percent(preview.summary.rate)],
+                    ['样本数', number(preview.summary.samples)],
+                    ['阳性样本数', number(preview.summary.positive)],
+                    ['阴性样本数', number(preview.summary.negative)],
+                    ['检测病原体种数', number(preview.summary.testedPathogens)],
+                    [
+                      '检出病原体种数',
+                      number(preview.summary.detectedPathogens),
+                    ],
+                    ['样本阳性率', percent(preview.summary.rate)],
                   ].map(([l, v]) => (
                     <div key={l}>
                       <span>{l}</span>
@@ -708,7 +715,7 @@ export default function UploadPage() {
                       '检测地区',
                       '检测日期',
                       '提交人／提交时间',
-                      '有效数据',
+                      '样本数据',
                       '状态／作废信息',
                       '操作',
                     ].map((v) => (
@@ -740,12 +747,25 @@ export default function UploadPage() {
                         </small>
                       </TableCell>
                       <TableCell>
-                        {number(h.summary.tested)} 个试剂 ·{' '}
-                        {number(h.summary.positive)} 个阳性
-                        <small className="code-note">
-                          {number(h.summary.rows)} 行结果 / 剔除{' '}
-                          {number(h.summary.excluded)} 行
-                        </small>
+                        {h.formatVersion === 2 ? (
+                          <>
+                            {number(h.summary.samples)} 份样本 ·{' '}
+                            {number(h.summary.positive)} 份阳性
+                            <small className="code-note">
+                              检测 {number(h.summary.testedPathogens)} 种 / 检出{' '}
+                              {number(h.summary.detectedPathogens)} 种病原体
+                            </small>
+                          </>
+                        ) : (
+                          <>
+                            {number(h.summary.tested)} 个有效试剂 ·{' '}
+                            {number(h.summary.positive)} 个阳性
+                            <small className="code-note">
+                              旧口径 · {number(h.summary.rows)} 行结果 / 剔除{' '}
+                              {number(h.summary.excluded)} 行
+                            </small>
+                          </>
+                        )}
                       </TableCell>
                       <TableCell>
                         <span

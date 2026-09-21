@@ -1,4 +1,3 @@
-import ExcelJS from 'exceljs';
 import { testDatabase } from './postgres.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
@@ -7,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdir } from 'node:fs/promises';
+import { dualWorkbook } from './workbook-v2.mjs';
 
 const district = {
   province_code: '420000',
@@ -14,19 +14,19 @@ const district = {
   county_code: '420106',
 };
 export async function workbook(rows, name = 'Sheet1') {
-  const book = new ExcelJS.Workbook();
-  const s = book.addWorksheet(name);
-  s.addRow(['batch', 'sam', 'PathogenWithReads', 'CT value', '中文']);
-  rows.forEach((r) => s.addRow(r));
-  const other = book.addWorksheet('Sheet3');
-  other.addRow(['batch', 'sam', 'PathogenWithReads', 'CT value']);
-  other.addRow(['WRONG', 'WRONG', 'WRONG', '非法']);
-  return Buffer.from(await book.xlsx.writeBuffer());
+  return dualWorkbook(
+    rows,
+    [
+      ['IAV', '甲型流感病毒'],
+      ['RSV', '呼吸道合胞病毒'],
+    ],
+    { sheet1: name },
+  );
 }
 export const validRows = [
-  ['B', 'A', 'IAV', 25, '甲型流感'],
-  ['B', 'A', 'RSV', 30, '合胞病毒'],
-  ['B', 'B', 'IAV', '阴性', '甲型流感'],
+  ['B', 'A', 'IAV', 25, ''],
+  ['B', 'A', 'RSV', 30, ''],
+  ['B', 'B', 'N', '阴性', ''],
 ];
 export async function fixture(
   t,

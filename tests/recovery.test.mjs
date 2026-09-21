@@ -100,10 +100,15 @@ void test(
     const f = await fixture(t),
       db = connectDatabase(f.pg.url);
     t.after(() => db.close());
-    const bytes = await workbook([
-      validRows[0],
-      ...Array.from({ length: 29999 }, () => ['', '', 'N', '-', '']),
-    ]);
+    const bytes = await workbook(
+      Array.from({ length: 30000 }, (_, index) => [
+        'B',
+        `S-${index}`,
+        'N',
+        '阴性',
+        '',
+      ]),
+    );
     await f.stopWorker();
     const accepted = await f.previewRaw(bytes);
     f.startWorker();
@@ -125,7 +130,7 @@ void test(
     );
     const result = await f.waitJob(id);
     assert.equal(result.data.status, 'ready', JSON.stringify(result.data));
-    assert.equal(result.data.summary.tested, 1);
+    assert.equal(result.data.summary.tested, 30000);
   },
 );
 

@@ -54,17 +54,31 @@ export interface SubmissionLocation {
   county_code: string;
   county: string;
 }
-export type SubmissionSummary = Stats & {
+export type LegacySubmissionSummary = Stats & {
   rows: number;
   batches: number;
   pathogens: number;
   excluded: number;
 };
+export type SampleSubmissionSummary = Stats & {
+  rows: number;
+  negative: number;
+  batches: number;
+  excluded: 0;
+  testedPathogens: number;
+  detectedPathogens: number;
+  pathogens: number;
+};
+export type SubmissionSummary =
+  | LegacySubmissionSummary
+  | SampleSubmissionSummary;
 export interface Preview {
   id: string;
+  formatVersion: 2;
   sheet: string;
+  sheets: ['Sheet1', 'Sheet2'];
   warnings: string[];
-  summary: SubmissionSummary;
+  summary: SampleSubmissionSummary;
   location: SubmissionLocation;
   date: string;
 }
@@ -72,7 +86,7 @@ export interface CommitResult {
   added: number;
   alreadyCommitted: boolean;
 }
-export interface ImportHistory {
+interface ImportHistoryBase {
   id: string;
   file_name: string;
   province: string;
@@ -82,11 +96,15 @@ export interface ImportHistory {
   created_at: string;
   submitted_name: string;
   submitted_username: string;
-  summary: SubmissionSummary;
   status: 'published' | 'withdrawn';
   withdrawn_at: string | null;
   withdrawn_name: string | null;
 }
+export type ImportHistory = ImportHistoryBase &
+  (
+    | { formatVersion: 2; summary: SampleSubmissionSummary }
+    | { formatVersion: 1; summary: LegacySubmissionSummary }
+  );
 export interface GeoProperties {
   adcode: number;
   name: string;

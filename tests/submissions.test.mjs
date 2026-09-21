@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 import { fixture, workbook, validRows } from './helpers/submission.mjs';
 
-test(
-  'Sheet1 剔除对照后汇总并确认：不保留 Excel 或暴露检测明细',
+void test(
+  '双工作表按样本汇总并确认：不保留 Excel 或暴露检测明细',
   { timeout: 40000 },
   async (t) => {
     const f = await fixture(t);
@@ -13,24 +13,36 @@ test(
         ...validRows,
         ['B', 'C', 'N', '阴性', ''],
         ['B', 'D', 'IAV', '-', ''],
-        ['B', 'D', 'IAV', '-', ''],
-        ['B', 'E', 'N', 26, ''],
       ]),
     );
     assert.equal(p.status, 200, JSON.stringify(p.data));
     assert.equal(p.data.sheet, 'Sheet1');
-    assert.equal(p.data.summary.rows, 3);
-    assert.equal(p.data.summary.samples, 2);
-    assert.equal(p.data.summary.positive, 1);
+    assert.deepEqual(p.data.sheets, ['Sheet1', 'Sheet2']);
+    assert.equal(p.data.formatVersion, 2);
+    assert.equal(p.data.summary.rows, 5);
+    assert.equal(p.data.summary.samples, 4);
+    assert.equal(p.data.summary.positive, 2);
+    assert.equal(p.data.summary.negative, 2);
     assert.equal(p.data.summary.rate, 0.5);
-    assert.equal(p.data.summary.excluded, 4);
+    assert.equal(p.data.summary.excluded, 0);
     assert.equal(p.data.records, undefined);
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
+    const before = p.data.summary;
+    await f.stop();
+    await f.start();
+    const restored = (await f.request('/jobs/' + p.data.id)).data;
+    assert.deepEqual(restored.sheets, ['Sheet1', 'Sheet2']);
+    assert.deepEqual(restored.summary, before);
+    assert.equal(restored.formatVersion, 2);
+    f.startWorker();
     assert.equal((await f.commit(p.data.id)).status, 200);
     const dash = (await f.request('/dashboard')).data;
-    assert.equal(dash.metrics.tested, 2);
-    assert.equal(dash.metrics.positive, 1);
+    assert.equal(dash.metrics.tested, 4);
+    assert.equal(dash.metrics.positive, 2);
     assert.equal(dash.ranking.find((r) => r.code === 'RSV').positive, 1);
+    const history = (await f.request('/imports')).data.items[0];
+    assert.equal(history.formatVersion, 2);
+    assert.equal(history.summary.negative, 2);
     assert.equal((await f.request('/records')).status, 404);
     assert.equal(
       (await f.request('/imports/download?id=' + p.data.id)).status,
@@ -41,18 +53,18 @@ test(
   },
 );
 
-test(
-  '有效行错误整份阻止，对照先剔除；仅检查 Sheet1',
+void test(
+  '双工作表中的重复、N 冲突和非法结果整份阻止',
   { timeout: 40000 },
   async (t) => {
     const f = await fixture(t);
     for (const [rows, pattern] of [
-      [[...validRows, validRows[0]], /第 2、5 行重复/],
-      [[...validRows, ['B', 'A', 'IAV', '阴性', '']], /重复/],
-      [[['B', 'S', 'IAV', '', '']], /无法识别/],
-      [[['B', 'S', 'IAV', '待复核', '']], /无法识别/],
+      [[...validRows, validRows[0]], /第 2、5 行.*重复/],
+      [[...validRows, ['B', 'A', 'N', '阴性', '']], /N 与阳性结果冲突/],
+      [[['B', 'S', 'IAV', '阴性', '']], /阳性结果/],
+      [[['B', 'S', 'IAV', '待复核', '']], /阳性结果/],
       [[['', 'S', 'IAV', 20, '']], /不能为空/],
-      [[['B', 'S', 'N', '阴性', '']], /没有有效/],
+      [[['B', 'S', 'N', 26, '']], /N 与 CT/],
     ]) {
       const r = await f.preview(await workbook(rows));
       assert.equal(r.data.status, 'failed');
@@ -70,7 +82,7 @@ test(
   },
 );
 
-test(
+void test(
   '行政区直接提交，上传批次独立累计且重复确认幂等',
   { timeout: 40000 },
   async (t) => {
@@ -100,7 +112,7 @@ test(
   },
 );
 
-test(
+void test(
   '本人历史、超管全量与整批作废审计，账号删除不丢历史',
   { timeout: 40000 },
   async (t) => {
@@ -169,7 +181,7 @@ test(
   },
 );
 
-test(
+void test(
   '全国省级包含市级提交，市内区县视图与图表同步剔除；覆盖直辖市',
   { timeout: 40000 },
   async (t) => {
@@ -211,8 +223,8 @@ test(
   },
 );
 
-test(
-  '富文本标识统一去空白，不能绕过重复校验或对照剔除',
+void test(
+  '富文本标识统一去空白，不能绕过重复校验且 N 保留为样本',
   { timeout: 40000 },
   async (t) => {
     const f = await fixture(t);
@@ -224,15 +236,15 @@ test(
     );
     assert.equal(duplicate.data.status, 'failed');
     assert.match(duplicate.data.error, /重复/);
-    const excluded = await f.preview(
+    const accepted = await f.preview(
       await workbook([
         ...validRows,
         ['B', 'C', { richText: [{ text: ' N ' }] }, '阴性', ''],
-        ['B', 'D', 'IAV', { richText: [{ text: ' — ' }] }, ''],
       ]),
     );
-    assert.equal(excluded.status, 200);
-    assert.equal(excluded.data.summary.excluded, 2);
-    assert.equal(excluded.data.summary.tested, 2);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.data.summary.samples, 3);
+    assert.equal(accepted.data.summary.negative, 2);
+    assert.equal(accepted.data.summary.excluded, 0);
   },
 );

@@ -63,19 +63,23 @@ void test(
 );
 
 void test(
-  '三万非空行边界含对照：30000 接受，30001 异步业务失败',
+  '三万样本边界：30000 接受，30001 异步业务失败',
   { timeout: 60000 },
   async (t) => {
     const f = await fixture(t);
-    const rows = [
-      validRows[0],
-      ...Array.from({ length: 29999 }, () => ['', '', 'N', '-', '']),
-    ];
+    const rows = Array.from({ length: 30000 }, (_, index) => [
+      'B',
+      `S-${index}`,
+      'N',
+      '阴性',
+      '',
+    ]);
     const accepted = await f.preview(await workbook(rows));
     assert.equal(accepted.data.status, 'ready', JSON.stringify(accepted.data));
-    assert.equal(accepted.data.summary.excluded, 29999);
+    assert.equal(accepted.data.summary.samples, 30000);
+    assert.equal(accepted.data.summary.excluded, 0);
     const rejected = await f.preview(
-      await workbook([...rows, ['', '', 'N', '-', '']]),
+      await workbook([...rows, ['B', 'S-30000', 'N', '阴性', '']]),
     );
     assert.equal(rejected.data.status, 'failed');
     assert.match(rejected.data.error, /30,000/);
