@@ -273,6 +273,64 @@
   color: #85bed3;
   font-size: 13px;
 }
+.pathogen-trigger {
+  display: inline-flex;
+  min-width: 148px;
+  height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+  border: 1px solid #25485c;
+  border-radius: 8px;
+  background: #071629d9;
+  color: #85bed3;
+  font-size: 13px;
+}
+.pathogen-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+.pathogen-popover {
+  width: min(320px, calc(100vw - 24px));
+  padding: 10px !important;
+}
+.pathogen-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #bce9f7;
+}
+.pathogen-options {
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #315c77 transparent;
+}
+.pathogen-options > p {
+  margin: 14px 8px;
+  color: #7295ad;
+}
+.pathogen-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 7px;
+  border-radius: 5px;
+  color: #a9d2e4;
+  cursor: pointer;
+}
+.pathogen-option:hover {
+  background: #16334e;
+}
+.pathogen-option span {
+  overflow-wrap: anywhere;
+}
+.pathogen-option small {
+  color: #5e8098;
+  font: 10px var(--font-mono);
+}
 .screen-date-panel {
   position: absolute;
   right: 0;
@@ -593,23 +651,6 @@
   min-height: 0;
   overflow: auto;
   scrollbar-width: thin;
-}
-.hud-chart-key {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  color: #5c829f;
-}
-.hud-chart-key i {
-  width: 7px;
-  height: 7px;
-  background: #167798;
-}
-.hud-chart-key i:last-of-type {
-  background: #cd86ef;
-  margin-left: 12px;
 }
 .hud-co {
   display: flex;
@@ -1064,7 +1105,7 @@
   .rail-right {
     right: auto;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     margin-top: 14px;
     gap: 14px;
   }
@@ -1611,6 +1652,8 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  margin: 0;
+  border: 0;
   padding-bottom: 7px;
   border-bottom: 1px solid #365776;
 }
@@ -1718,7 +1761,7 @@
     display: flex;
     flex-direction: column;
     flex: 1 1 0;
-    min-height: 280px;
+    min-height: 420px;
   }
   .temporal-chart {
     position: relative;
@@ -1728,9 +1771,6 @@
   .temporal-chart > figure {
     position: absolute;
     inset: 0;
-  }
-  .cyber-screen .trend-hud {
-    flex: 0 0 239px;
   }
 }
 @media (max-width: 1000px) {

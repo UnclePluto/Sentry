@@ -7,6 +7,7 @@ import {
   TooltipComponent,
   VisualMapComponent,
   LegendComponent,
+  DataZoomComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 echarts.use([
@@ -18,6 +19,7 @@ echarts.use([
   TooltipComponent,
   VisualMapComponent,
   LegendComponent,
+  DataZoomComponent,
   CanvasRenderer,
 ]);
 export default function Chart({

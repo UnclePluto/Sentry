@@ -675,7 +675,7 @@ export default function MapView({
                   ? object.properties.name
                   : object.feature.properties.name;
               return {
-                text: `${name}\n${d ? `有效检测 ${number(d.tested)} · 阳性 ${number(d.positive)}\n阳性率 ${percent(d.rate)}` : '当前时段暂无检测数据'}`,
+                text: `${name}\n${d ? `样本数 ${number(d.samples)} · 阳性样本数 ${number(d.positive)}\n样本阳性率 ${percent(d.rate)}` : '当前时段暂无样本数据'}`,
                 style: {
                   background: '#0a1931',
                   border: '1px solid #456e99',
@@ -762,7 +762,7 @@ export default function MapView({
         />
       )}
       <div className="fixed-map-controls" inert={transitioning}>
-        <div className="map-mode-switch" role="group" aria-label="地图显示模式">
+        <fieldset className="map-mode-switch" aria-label="地图显示模式">
           {(['2d', '3d'] as const).map((mode) => (
             <Button
               key={mode}
@@ -780,7 +780,7 @@ export default function MapView({
               {mode.toUpperCase()}
             </Button>
           ))}
-        </div>
+        </fieldset>
         <Button
           variant="secondary"
           size="icon"
@@ -831,7 +831,7 @@ export default function MapView({
         <span>{locked ? '视图锁定' : '拖拽开启'}</span>
       </div>
       <div className="floating-map-legend">
-        <span>{is3d ? '颜色 / 高度：试剂阳性率' : '试剂阳性率'}</span>
+        <span>{is3d ? '颜色 / 高度：样本阳性率' : '样本阳性率'}</span>
         <div>
           <i style={{ background: '#0c2e4d' }} />
           无数据
@@ -862,10 +862,10 @@ export default function MapView({
           <h3>{activeName}</h3>
           <p>
             <span>
-              有效检测 <b>{number(activeStats.tested)}</b>
+              样本数 <b>{number(activeStats.samples)}</b>
             </span>
             <span>
-              阳性率 <b>{percent(activeStats.rate)}</b>
+              样本阳性率 <b>{percent(activeStats.rate)}</b>
             </span>
           </p>
         </div>

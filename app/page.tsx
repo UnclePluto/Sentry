@@ -15,6 +15,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Picker } from '@/components/picker';
+import { PathogenPicker } from '@/components/pathogen-picker';
+import {
+  dashboardQuery,
+  normalizePathogens,
+  pathogenScope,
+} from '@/lib/dashboard-query';
 import { api, number, percent } from '@/lib/api';
 import type { DashboardData, ModelContext, GeoData } from '@/lib/models';
 import type { Region } from '@/components/map-view';
@@ -59,7 +65,7 @@ export default function Dashboard() {
     [error, setError] = useState(''),
     [loading, setLoading] = useState(true),
     [range, setRange] = useState({ from: '', to: '' }),
-    [pathogen, setPathogen] = useState(''),
+    [pathogens, setPathogens] = useState<string[]>([]),
     [path, setPath] = useState<Region[]>([ROOT]),
     [playing, setPlaying] = useState(true),
     [month, setMonth] = useState(''),
@@ -73,9 +79,19 @@ export default function Dashboard() {
   const [arrival, setArrival] = useState<MapJourney | null>(null);
   const [preparedGeo, setPreparedGeo] = useState<GeoData | null>(null);
   const navigationRequest = useRef<AbortController | null>(null);
+  const requestIdentity = useRef('');
   const [navigating, setNavigating] = useState(false);
   const initialized = useRef(false);
   const region = path[path.length - 1];
+  const selectedPathogens = useMemo(
+    () => normalizePathogens(pathogens),
+    [pathogens],
+  );
+  const pathogenKey = pathogenScope(selectedPathogens);
+  const filterIdentity = `${demo}|${range.from}|${range.to}|${pathogenKey}`;
+  useEffect(() => {
+    requestIdentity.current = filterIdentity;
+  }, [filterIdentity]);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('source') === 'real')
       setDemo(false);
@@ -89,10 +105,10 @@ export default function Dashboard() {
     const c = new AbortController();
     api<DashboardData>(
       '/dashboard?' +
-        new URLSearchParams({
-          demo: demo ? '1' : '0',
+        dashboardQuery({
+          demo,
           region: region.code,
-          pathogen,
+          pathogens: selectedPathogens,
         }),
       { signal: c.signal },
     )
@@ -109,18 +125,18 @@ export default function Dashboard() {
         if (e.name !== 'AbortError') setError(e.message);
       });
     return () => c.abort();
-  }, [demo, region.code, pathogen, refresh]);
+  }, [demo, region.code, selectedPathogens, refresh]);
   useEffect(() => {
     const c = new AbortController();
     setLoading(true);
     setError('');
     api<DashboardData>(
       '/dashboard?' +
-        new URLSearchParams({
-          demo: demo ? '1' : '0',
+        dashboardQuery({
+          demo,
           ...range,
           region: region.code,
-          pathogen,
+          pathogens: selectedPathogens,
         }),
       { signal: c.signal },
     )
@@ -135,7 +151,7 @@ export default function Dashboard() {
         if (!c.signal.aborted) setLoading(false);
       });
     return () => c.abort();
-  }, [demo, range, region.code, pathogen, refresh]);
+  }, [demo, range, region.code, selectedPathogens, refresh]);
   const months = useMemo(() => {
     const a = overview?.extent.earliest?.slice(0, 7),
       b = overview?.extent.latest?.slice(0, 7);
@@ -176,6 +192,7 @@ export default function Dashboard() {
           execute: () => ({
             demo,
             region: region.name,
+            pathogens: selectedPathogens,
             ...range,
             metrics: data?.metrics || null,
           }),
@@ -184,72 +201,31 @@ export default function Dashboard() {
       ),
     ).catch(() => {});
     return () => lifecycle.abort();
-  }, [demo, data, region, range]);
+  }, [demo, data, region, range, selectedPathogens]);
   useEffect(() => {
     const t = setInterval(() => setRefresh((v) => v + 1), 20000);
     return () => clearInterval(t);
   }, []);
   const chartData = overview;
-  const trend = useMemo(
-    () => ({
-      animationDurationUpdate: 650,
-      tooltip: { trigger: 'axis' },
-      grid: { left: 35, right: 34, top: 14, bottom: 24 },
-      xAxis: {
-        type: 'category',
-        data: chartData?.trend.map((r) => r.month.slice(5) + '月'),
-        ...axis,
-      },
-      yAxis: [
-        { type: 'value', ...axis },
-        {
-          type: 'value',
-          ...axis,
-          axisLabel: { color: '#ae87df', fontSize: 12, formatter: '{value}%' },
-        },
-      ],
-      series: [
-        {
-          name: '有效检测',
-          type: 'bar',
-          data: chartData?.trend.map((r) => r.tested),
-          barMaxWidth: 18,
-          itemStyle: { color: '#166c86', borderRadius: [2, 2, 0, 0] },
-        },
-        {
-          name: '试剂阳性率',
-          type: 'line',
-          yAxisIndex: 1,
-          data: chartData?.trend.map((r) =>
-            r.rate == null ? null : Number((r.rate * 100).toFixed(1)),
-          ),
-          smooth: true,
-          symbolSize: 5,
-          itemStyle: { color: '#d389fc' },
-          lineStyle: { width: 2, shadowBlur: 9, shadowColor: '#ab53ff' },
-          areaStyle: { color: '#b26bed', opacity: 0.12 },
-        },
-      ],
-    }),
-    [chartData],
-  );
   const heat = useMemo(() => {
-    const ranks = chartData?.ranking.slice(0, 8) || [];
-    const ms = chartData?.trend.map((r) => r.month) || [];
+    const ranks = chartData?.ranking || [];
+    const ms = months;
     const values = ranks.flatMap((r, y) =>
-      ms.map((m, x) => [
-        x,
-        y,
-        chartData?.heatmap.find((v) => v.code === r.code && v.month === m)
-          ?.count || 0,
-      ]),
+      ms.map((month, x) => {
+        const item = chartData?.heatmap.find(
+          (value) => value.code === r.code && value.month === month,
+        );
+        return [x, y, item && item.tested > 0 ? item.count : null];
+      }),
     );
     return {
       tooltip: {
-        formatter: (p: { value: number[] }) =>
-          `${safe(ranks[p.value[1]]?.name || '')}<br/>${ms[p.value[0]]} · ${p.value[2]} 份阳性试剂`,
+        formatter: (point: { value: [number, number, number | null] }) => {
+          const count = point.value[2];
+          return `${safe(ranks[point.value[1]]?.name || '')}<br/>${ms[point.value[0]]} · ${count == null ? '未检测' : `${count} 份阳性样本`}`;
+        },
       },
-      grid: { left: 104, right: 6, top: 9, bottom: 24 },
+      grid: { left: 112, right: ranks.length > 8 ? 28 : 8, top: 9, bottom: 24 },
       xAxis: {
         type: 'category',
         data: ms.map((m) => m.slice(5) + '月'),
@@ -270,11 +246,36 @@ export default function Dashboard() {
       visualMap: {
         show: false,
         min: 0,
-        max: Math.max(1, ...values.map((v) => v[2])),
+        max: Math.max(
+          1,
+          ...values.map((value) =>
+            typeof value[2] === 'number' ? value[2] : 0,
+          ),
+        ),
         inRange: {
           color: ['#102035', '#174b70', '#317c99', '#9561c7', '#ed9fe6'],
         },
       },
+      dataZoom:
+        ranks.length > 8
+          ? [
+              {
+                type: 'inside',
+                yAxisIndex: 0,
+                startValue: 0,
+                endValue: 7,
+              },
+              {
+                type: 'slider',
+                yAxisIndex: 0,
+                right: 1,
+                width: 10,
+                startValue: 0,
+                endValue: 7,
+                showDetail: false,
+              },
+            ]
+          : [],
       series: [
         {
           type: 'heatmap',
@@ -288,11 +289,12 @@ export default function Dashboard() {
         },
       ],
     };
-  }, [chartData]);
+  }, [chartData, months]);
   async function navigate(nextPath: Region[]) {
     if (navigationRequest.current || nextPath.at(-1)?.code === region.code)
       return;
     const controller = new AbortController();
+    const identity = requestIdentity.current;
     navigationRequest.current = controller;
     setNavigating(true);
     const target = nextPath[nextPath.length - 1];
@@ -304,16 +306,20 @@ export default function Dashboard() {
         api<GeoData>('/geo?code=' + target.code, { signal: controller.signal }),
         api<DashboardData>(
           '/dashboard?' +
-            new URLSearchParams({
-              demo: demo ? '1' : '0',
+            dashboardQuery({
+              demo,
               ...range,
               region: target.code,
-              pathogen,
+              pathogens: selectedPathogens,
             }),
           { signal: controller.signal },
         ),
       ]);
-      if (!controller.signal.aborted)
+      if (
+        !controller.signal.aborted &&
+        requestIdentity.current === identity &&
+        navigationRequest.current === controller
+      )
         setNavigation({
           direction,
           focusCode,
@@ -343,6 +349,12 @@ export default function Dashboard() {
     setNavigating(false);
   }
   useEffect(() => () => navigationRequest.current?.abort(), []);
+  useEffect(() => {
+    navigationRequest.current?.abort();
+    navigationRequest.current = null;
+    setNavigation(null);
+    setNavigating(false);
+  }, [filterIdentity]);
   const m = data?.metrics;
   const selectMonth = (value: string) => {
     setMonth(value);
@@ -360,7 +372,7 @@ export default function Dashboard() {
       <div className="cyber-map">
         <MapView
           key={region.code}
-          motionScope={`${demo}-${pathogen}`}
+          motionScope={`${demo}-${pathogenKey}`}
           region={region}
           mapMode={mapMode}
           onModeChange={setMapMode}
@@ -432,18 +444,11 @@ export default function Dashboard() {
           ))}
         </div>
         <div className="screen-filters" inert={navigating}>
-          <Picker
-            value={pathogen || 'all'}
-            onChange={(v) => setPathogen(v === 'all' ? '' : v)}
-            options={[
-              { value: 'all', label: '全部病原体' },
-              ...(overview?.ranking || []).map((r) => ({
-                value: r.code,
-                label: r.name,
-              })),
-            ]}
-            label="筛选病原体"
-            contentClassName="cyber-popup"
+          <PathogenPicker
+            value={pathogens}
+            onChange={setPathogens}
+            options={overview?.pathogenOptions || []}
+            disabled={navigating}
           />
           <Picker
             value={demo ? 'demo' : 'real'}
@@ -456,7 +461,7 @@ export default function Dashboard() {
               setArrival(null);
               initialized.current = false;
               setDemo(v === 'demo');
-              setPathogen('');
+              setPathogens([]);
               setMonth('');
               setRange({ from: '', to: '' });
               setPath([ROOT]);
@@ -526,10 +531,10 @@ export default function Dashboard() {
           <PanelTitle title="监测信息与结果总览" code="01 / OVERVIEW" />
           <div className="hud-metrics">
             {[
-              ['有效试剂', number(m?.tested), '个'],
-              ['阳性试剂', number(m?.positive), '个'],
-              ['有效提交', number(m?.submissions), '批'],
-              ['检出病原体', number(m?.pathogens), '种'],
+              ['样本数', number(m?.samples), '份'],
+              ['阳性样本数', number(m?.positive), '份'],
+              ['监测区域', number(m?.regions), '个'],
+              ['检出病原体总数', number(m?.pathogens), '种'],
             ].map(([label, value, unit], i) => (
               <div key={label} className={'hud-metric metric-tone-' + i}>
                 <span>{label}</span>
@@ -552,9 +557,19 @@ export default function Dashboard() {
               <span>{percent(m?.rate)}</span>
             </div>
             <div>
-              <strong>{pathogen ? '所选病原体阳性率' : '试剂阳性率'}</strong>
-              <p>对照数据已剔除</p>
-              <small>任一病原体阳性计为阳性试剂</small>
+              <strong>样本阳性率</strong>
+              <p>
+                {pathogens.length
+                  ? `所选病原体未检出 ${number(m?.notDetected)} 份`
+                  : '任一病原体阳性样本数 / 样本总数'}
+              </p>
+              <small>
+                {m?.excludedNoSelectedTest
+                  ? `${number(m.excludedNoSelectedTest)} 份样本未检测任何所选病原体，未计入统计`
+                  : pathogens.length
+                    ? '所选病原体任一阳性样本数 / 检测过任一所选病原体的样本数'
+                    : '整份 N 样本计为阴性样本'}
+              </small>
             </div>
           </div>
         </section>
@@ -562,17 +577,26 @@ export default function Dashboard() {
           <PanelTitle title="病原体检出排行" code="02 / DETECTION" />
           <div className="hud-table-header">
             <span>病原体</span>
-            <span>阳性试剂</span>
+            <span>阳性样本数</span>
           </div>
           <div className="rank-list">
             {data?.ranking.length ? (
               data.ranking.map((r, i) => (
                 <button
                   className={
-                    'hud-rank ' + (pathogen === r.code ? 'is-selected' : '')
+                    'hud-rank ' +
+                    (pathogens.includes(r.code) ? 'is-selected' : '')
                   }
                   key={r.code}
-                  onClick={() => setPathogen(pathogen === r.code ? '' : r.code)}
+                  onClick={() =>
+                    setPathogens((current) =>
+                      normalizePathogens(
+                        current.includes(r.code)
+                          ? current.filter((value) => value !== r.code)
+                          : [...current, r.code],
+                      ),
+                    )
+                  }
                 >
                   <span className="rank-code">
                     {String(i + 1).padStart(2, '0')}
@@ -599,9 +623,9 @@ export default function Dashboard() {
             )}
           </div>
           <p className="hud-note">
-            {data?.missingPanel
-              ? '部分阴性记录未注明面板，单病原体阳性率不作推算。'
-              : '点击病原体，联动查看空间分布。'}
+            {m?.excludedNoSelectedTest
+              ? `${number(m.excludedNoSelectedTest)} 份样本未检测任何所选病原体，未计入统计。`
+              : '点击病原体可叠加选择，联动查看空间分布。'}
           </p>
         </section>
       </aside>
@@ -613,31 +637,15 @@ export default function Dashboard() {
               <Chart
                 option={heat}
                 height="100%"
-                label="病原体逐月阳性试剂数热力图"
+                label="病原体逐月阳性样本数热力图"
               />
             ) : (
               <p className="hud-empty">暂无病原体时间数据</p>
             )}
           </div>
-          <p className="hud-note">颜色深浅表示检出数量 · 单位：份</p>
-        </section>
-        <section className="hud-panel trend-hud">
-          <PanelTitle title="检测量与阳性趋势" code="04 / TREND" />
-          {chartData?.trend.length ? (
-            <Chart
-              option={trend}
-              height={160}
-              label="逐月检测量与阳性率趋势图"
-            />
-          ) : (
-            <p className="hud-empty">暂无趋势数据</p>
-          )}
-          <div className="hud-chart-key">
-            <i />
-            有效检测
-            <i />
-            试剂阳性率
-          </div>
+          <p className="hud-note">
+            全部报告月份 · 颜色深浅表示阳性样本数 · 单位：份；空白表示未检测
+          </p>
         </section>
       </aside>
       <div className="map-frame-caption">
