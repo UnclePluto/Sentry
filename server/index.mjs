@@ -88,7 +88,18 @@ const server = createServer(async (req, res) => {
         throw new Error('日期无效。');
       return json(
         res,
-        await dashboard(db, { ...filters, demo: filters.demo === '1' }),
+        await dashboard(db, {
+          ...filters,
+          demo: filters.demo === '1',
+          pathogens: [
+            ...new Set(
+              url.searchParams
+                .getAll('pathogen')
+                .map((value) => value.trim())
+                .filter(Boolean),
+            ),
+          ].sort(),
+        }),
       );
     }
     if (req.method === 'GET' && p === '/api/geo')

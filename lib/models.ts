@@ -28,11 +28,19 @@ export interface Ranking {
   rate: number | null;
 }
 export interface DashboardData {
-  metrics: Stats & { submissions: number; pathogens: number };
+  metrics: Stats & {
+    notDetected: number;
+    excludedNoSelectedTest: number;
+    submissions: number;
+    pathogens: number;
+    regions: number;
+  };
   extent: { earliest: string | null; latest: string | null; count: number };
+  selectedPathogens: string[];
+  pathogenOptions: { code: string; name: string }[];
   ranking: Ranking[];
   trend: (Stats & { month: string })[];
-  heatmap: { code: string; month: string; count: number }[];
+  heatmap: { code: string; month: string; tested: number; count: number }[];
   cooccurrence: { pair: string[]; count: number }[];
   regions: RegionGroups;
   missingPanel: number;
