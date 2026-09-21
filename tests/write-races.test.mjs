@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { fixture, workbook, validRows } from './helpers/submission.mjs';
 import { connectDatabase } from '../server/database.mjs';
+import { dualWorkbook } from './helpers/workbook-v2.mjs';
 
 void test(
   '慢请求期间停用或重置密码，补完请求体后不能提交',
@@ -91,27 +92,31 @@ void test('不同批次同时作废不发生锁升级死锁', { timeout: 40000 }
 });
 
 void test(
-  '第五次入库失败后不再提供无效重试入口，正式数据无部分写入',
+  '篡改后的新版入库立即失败且不提供重试入口，正式数据无部分写入',
   { timeout: 40000 },
   async (t) => {
+    const resources = {};
+    t.after(() => resources.db?.close());
     const f = await fixture(t),
       db = connectDatabase(f.pg.url);
-    t.after(() => db.close());
-    const p = await f.preview(await workbook(validRows));
+    resources.db = db;
+    const p = await f.preview(
+      await dualWorkbook(
+        [['B', 'S1', 'IAV', 25, '']],
+        [['IAV', '甲型流感病毒']],
+      ),
+    );
     await f.stopWorker();
     await db.query(
-      "UPDATE imports SET payload=jsonb_set(payload,'{records}',(payload->'records')||jsonb_build_array(payload->'records'->0)) WHERE id=$1",
+      "UPDATE imports SET payload=jsonb_set(payload,'{detections}',(payload->'detections')||jsonb_build_array(payload->'detections'->0)) WHERE id=$1",
       [p.data.id],
     );
-    await db.query(
-      "UPDATE jobs SET phase='commit',status='queued',attempts=4 WHERE id=$1",
-      [p.data.id],
-    );
+    await f.post('/imports/commit', { id: p.data.id });
     f.startWorker();
     const failed = (await f.waitJob(p.data.id, ['failed'])).data;
-    assert.equal(failed.attempts, 5);
+    assert.equal(failed.attempts, 1);
     assert.equal(failed.retryable, false);
-    assert.match(failed.error, /耗尽/);
+    assert.match(failed.error, /重复|篡改/);
     assert.equal((await f.post('/jobs/retry', { id: p.data.id })).status, 400);
     assert.equal((await f.request('/dashboard')).data.metrics.tested, 0);
     assert.equal((await db.get('SELECT count(*) n FROM samples')).n, 0);

@@ -34,7 +34,11 @@ export async function getJob(db, id, user) {
   if (!job) throw invalid('任务不存在。', 404);
   return {
     ...job,
+    formatVersion: row.format_version,
     sheet: row.source_sheet,
+    sheets:
+      row.payload?.sheets ||
+      (row.format_version === 2 ? ['Sheet1', 'Sheet2'] : [row.source_sheet]),
     summary: row.summary,
     warnings: row.warnings,
     expiresAt: row.expires_at,
@@ -66,6 +70,8 @@ export async function commitJob(db, id, user) {
       new Date(row.expires_at) <= new Date()
     )
       throw invalid('预览不可提交或已过期，请重新上传。');
+    if (row.format_version !== 2 || row.payload.formatVersion !== 2)
+      throw invalid('旧格式预览不能提交，请重新上传双工作表文件。');
     await tx.query(
       "UPDATE jobs SET phase='commit',status='queued',attempts=0,error=NULL,error_code=NULL,retryable=false,next_attempt_at=now(),updated_at=now() WHERE id=$1",
       [id],
@@ -144,7 +150,7 @@ export async function history(
         ...values,
       );
       const rows = await tx.all(
-        `SELECT i.id,i.file_name,i.province,i.city,i.county,i.report_date,i.created_at,i.status,i.submitted_name,i.submitted_username,i.summary,i.withdrawn_at,i.withdrawn_name,j.status job_status,j.phase,j.error,j.retryable FROM imports i LEFT JOIN jobs j ON j.import_id=i.id WHERE ${where} ORDER BY i.created_at DESC,i.id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+        `SELECT i.id,i.file_name,i.province,i.city,i.county,i.report_date,i.created_at,i.status,i.submitted_name,i.submitted_username,i.summary,i.format_version "formatVersion",i.withdrawn_at,i.withdrawn_name,j.status job_status,j.phase,j.error,j.retryable FROM imports i LEFT JOIN jobs j ON j.import_id=i.id WHERE ${where} ORDER BY i.created_at DESC,i.id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
         ...values,
         pageSize,
         (page - 1) * pageSize,

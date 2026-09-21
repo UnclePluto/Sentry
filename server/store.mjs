@@ -2,6 +2,8 @@ import { authorizeWrite, lockWrites } from './write-gate.mjs';
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { connectDatabase, migrate, verifySchema } from './database.mjs';
+import { writeSampleImport } from './sample-import.mjs';
+import { rebuildSampleMetrics } from './sample-metrics.mjs';
 export async function openStore(dir) {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const db = connectDatabase();
@@ -27,9 +29,10 @@ export async function stage(
     demo = 0,
   },
 ) {
+  const formatVersion = payload?.formatVersion ?? (demo ? 1 : 2);
   await db.query(
-    `INSERT INTO imports(id,file_name,sha256,province_code,province,city_code,city,county_code,county,submitted_by,submitted_name,submitted_username,report_date,created_at,status,source_sheet,warnings,payload,summary,demo,expires_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),'staged',$14,$15,$16,$17,$18,CASE WHEN $16::jsonb IS NULL THEN NULL ELSE now()+interval '7 days' END)`,
+    `INSERT INTO imports(id,file_name,sha256,province_code,province,city_code,city,county_code,county,submitted_by,submitted_name,submitted_username,report_date,created_at,status,source_sheet,warnings,payload,summary,demo,expires_at,format_version)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),'staged',$14,$15,$16,$17,$18,CASE WHEN $16::jsonb IS NULL THEN NULL ELSE now()+interval '7 days' END,$19)`,
     [
       id,
       fileName,
@@ -49,11 +52,17 @@ export async function stage(
       payload ? JSON.stringify(payload) : null,
       JSON.stringify(payload?.summary || {}),
       demo,
+      formatVersion,
     ],
   );
   return id;
 }
 export async function rebuildContribution(tx, id) {
+  const row = await tx.get(
+    'SELECT format_version FROM imports WHERE id=$1',
+    id,
+  );
+  if (row?.format_version === 2) return rebuildSampleMetrics(tx, id);
   await tx.query('DELETE FROM import_metrics WHERE import_id=$1', [id]);
   await tx.query(
     `INSERT INTO import_metrics(import_id,pathogen_code,tested,positive)
@@ -71,6 +80,18 @@ export async function publishInTransaction(tx, id) {
     throw Object.assign(Error('该预览不存在或已过期，请重新上传。'), {
       status: 400,
     });
+  if (row.format_version === 2) {
+    await writeSampleImport(tx, id, row.payload);
+    await rebuildSampleMetrics(tx, id);
+    await tx.query(
+      "UPDATE imports SET status='published',created_at=now(),payload=NULL,expires_at=NULL WHERE id=$1",
+      [id],
+    );
+    await tx.query(
+      'UPDATE dataset_state SET revision=revision+1,updated_at=now() WHERE id=1',
+    );
+    return { added: row.summary.samples, alreadyCommitted: false };
+  }
   const records = row.payload.records;
   await tx.query(
     `INSERT INTO pathogens(code,name) SELECT key,value FROM jsonb_each_text($1::jsonb) ON CONFLICT(code) DO NOTHING`,

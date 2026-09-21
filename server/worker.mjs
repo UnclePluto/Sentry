@@ -5,6 +5,7 @@ import { Worker } from 'node:worker_threads';
 import { openStore, publishInTransaction } from './store.mjs';
 import { originalPath } from './jobs.mjs';
 import { lockWrites } from './write-gate.mjs';
+import { validateSamplePayload } from './sample-import.mjs';
 const dir = resolve(process.env.SENTRY_DATA_DIR || 'data');
 const db = await openStore(dir),
   workerId = randomUUID();
@@ -120,6 +121,7 @@ async function processJob(job) {
         throw e;
       }
       const payload = await parse(bytes);
+      validateSamplePayload(payload);
       const accepted = await db.transaction(async (tx) => {
         const current = await tx.get(
           'SELECT * FROM jobs WHERE id=$1 FOR UPDATE',
@@ -128,7 +130,7 @@ async function processJob(job) {
         if (current.lease_token !== job.token || current.status !== 'running')
           return;
         await tx.query(
-          "UPDATE imports SET payload=$2,summary=$3,warnings=$4,source_sheet=$5,expires_at=now()+interval '7 days' WHERE id=$1 AND status='staged'",
+          "UPDATE imports SET payload=$2,summary=$3,warnings=$4,source_sheet=$5,format_version=2,expires_at=now()+interval '7 days' WHERE id=$1 AND status='staged'",
           [
             job.id,
             JSON.stringify(payload),
