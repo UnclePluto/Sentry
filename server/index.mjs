@@ -183,7 +183,10 @@ const server = createServer(async (req, res) => {
     json(
       res,
       {
-        error: status >= 500 ? '服务暂时不可用，请稍后重试。' : error.message,
+        error:
+          status >= 500 && !error.expose
+            ? '服务暂时不可用，请稍后重试。'
+            : error.message,
         requestId,
       },
       status,

@@ -17,7 +17,7 @@ async function addImport(db, id) {
   );
 }
 
-test('新库按顺序应用版本 1 和版本 2', async (t) => {
+void test('新库按顺序应用版本 1 和版本 2', async (t) => {
   const db = await databaseFixture(t);
   assert.deepEqual(
     (
@@ -28,7 +28,7 @@ test('新库按顺序应用版本 1 和版本 2', async (t) => {
   await verifySchema(db);
 });
 
-test('升级保留旧同名样本与版本 1 校验和', async (t) => {
+void test('升级保留旧同名样本与版本 1 校验和', async (t) => {
   const db = await databaseFixture(t, { version: 1 });
   await db.exec(
     `INSERT INTO imports(
@@ -66,7 +66,7 @@ test('升级保留旧同名样本与版本 1 校验和', async (t) => {
   );
 });
 
-test('格式 2 数据库约束隔离样本、检测范围和阳性明细', async (t) => {
+void test('格式 2 数据库约束隔离样本、检测范围和阳性明细', async (t) => {
   const db = await databaseFixture(t);
   await addImport(db, 'one');
   await addImport(db, 'two');

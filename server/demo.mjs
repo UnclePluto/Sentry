@@ -22,15 +22,15 @@ const places = [
   ['350000', '福建省', '350100', '福州市'],
 ];
 const codes = ['IAV', 'IBV', 'RSV', 'HRV', 'ADV', 'MP', 'Spn', 'Hinf'];
-const panel = codes.map((code, index) => ({
-  code,
-  name: KNOWN_NAMES[code],
-  rawName: KNOWN_NAMES[code],
-  sourceRow: index + 2,
-}));
-const names = Object.fromEntries(panel.map(({ code, name }) => [code, name]));
 
-function payloadFor(index, month, rand) {
+function payloadFor(index, month, rand, dictionary) {
+  const panel = codes.map((code, panelIndex) => ({
+    code,
+    name: dictionary[code],
+    rawName: dictionary[code],
+    sourceRow: panelIndex + 2,
+  }));
+  const names = Object.fromEntries(panel.map(({ code, name }) => [code, name]));
   const samples = [],
     detections = [];
   let sourceRow = 2;
@@ -64,7 +64,7 @@ function payloadFor(index, month, rand) {
         code,
         ct,
         raw: String(ct),
-        name: KNOWN_NAMES[code],
+        name: dictionary[code],
         sourceRow: sourceRow++,
       });
     }
@@ -109,6 +109,14 @@ export async function seedDemo(db) {
          withdrawn_name='系统重建不完整演示数据'
        WHERE demo=1 AND status='published'`,
     );
+    const existingNames = Object.fromEntries(
+      (
+        await tx.all('SELECT code,name FROM pathogens WHERE code=ANY($1::text[])', codes)
+      ).map(({ code, name }) => [code, name]),
+    );
+    const dictionary = Object.fromEntries(
+      codes.map((code) => [code, existingNames[code] || KNOWN_NAMES[code]]),
+    );
 
     let seed = 67;
     const rand = () => {
@@ -138,7 +146,7 @@ export async function seedDemo(db) {
         county: index % 3 && district ? district.name : '',
       };
       for (let month = 4; month <= 9; month++) {
-        const payload = payloadFor(index, month, rand);
+        const payload = payloadFor(index, month, rand, dictionary);
         const importId = await stage(tx, {
           fileName: '演示数据',
           hash: `demo-${rawCityCode}-${month}`,

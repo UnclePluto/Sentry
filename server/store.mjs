@@ -5,6 +5,10 @@ import { connectDatabase, migrate, verifySchema } from './database.mjs';
 import { writeSampleImport } from './sample-import.mjs';
 import { rebuildSampleMetrics } from './sample-metrics.mjs';
 import { readDashboard } from './dashboard.mjs';
+import {
+  checkSampleModelReadiness,
+  sampleModelNotReady,
+} from './sample-model-readiness.mjs';
 export async function openStore(dir) {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const db = connectDatabase();
@@ -154,8 +158,17 @@ export async function owned(db, id, user, lock = false) {
     throw Object.assign(Error('提交不存在或无权操作。'), { status: 404 });
   return row;
 }
-export const dashboard = (db, filters) =>
-  db.transaction((tx) => readDashboard(tx, filters), { readOnly: true });
+export const dashboard = (db, filters = {}) =>
+  db.transaction(
+    async (tx) => {
+      if (!filters.demo) {
+        const readiness = await checkSampleModelReadiness(tx);
+        if (!readiness.ready) throw sampleModelNotReady();
+      }
+      return readDashboard(tx, filters);
+    },
+    { readOnly: true },
+  );
 export async function rebuildAll(db) {
   return db.transaction(async (tx) => {
     await lockWrites(tx, { allowMaintenance: true });

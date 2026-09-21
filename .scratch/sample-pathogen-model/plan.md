@@ -2,7 +2,7 @@
 
 > **面向执行代理：**实施时使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans`，按任务推进并勾选步骤；执行方式由用户审阅本计划后选择。本轮仅制定计划，不启动实现或代理。
 
-Status: pending-plan-review
+Status: complete
 
 **目标：**完成双 Sheet 导入、按样本去重的方案 A 统计、多选病原体与大盘布局调整。
 
@@ -125,9 +125,9 @@ type DashboardMetrics = {
 
 ## 执行与交付
 
-- [ ] 用户审阅计划并选择执行方式。
-- [ ] 按各任务文件完成对应测试循环和验收记录。
-- [ ] 完成整体验收及一次独立代码审查，处理实际缺陷后再报告结果。
-- [ ] 在 `.scratch/sample-pathogen-model/implementation-report.md` 记录实际执行命令、结果、跳过项、历史数据状态与上线限制。
+- [x] 用户审阅计划并选择执行方式。
+- [x] 按各任务文件完成对应测试循环和验收记录。
+- [x] 完成整体验收及一次独立代码审查，处理实际缺陷后再报告结果。
+- [x] 在 `.scratch/sample-pathogen-model/implementation-report.md` 记录实际执行命令、结果、跳过项、历史数据状态与上线限制。
 
 建议选择**当前会话由主代理顺序实施，最后统一独立审查**：任务共享 payload、数据库和统计类型契约，顺序推进可减少交接成本。也可选择每项任务分别由实现与审查代理处理；计划尚未采用任何一种执行方式。

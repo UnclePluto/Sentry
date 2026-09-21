@@ -30,7 +30,15 @@ export const validRows = [
 ];
 export async function fixture(
   t,
-  { legacy = false, demo = false, expiredPreview = false } = {},
+  {
+    legacy = false,
+    demo = false,
+    expiredPreview = false,
+    readyPreview = false,
+    publishedLegacy = false,
+    legacyDemo = false,
+    emptyLegacy = false,
+  } = {},
 ) {
   const dir = await mkdtemp(join(tmpdir(), 'sentry-submissions-'));
   const pg = await testDatabase();
@@ -98,88 +106,103 @@ export async function fixture(
         rate: 0.5,
       },
     };
-    old
-      .prepare('INSERT INTO imports VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-      .run(
-        'legacy',
-        '旧文件.xlsx',
-        'hash',
-        'old-place',
-        '2023-09-01',
-        '2023-09-02T00:00:00.000Z',
-        'published',
-        'Sheet1',
-        '[]',
-        JSON.stringify(payload),
-        0,
-      );
-    old
-      .prepare('INSERT INTO samples VALUES(?,?,?,?)')
-      .run(1, 'legacy', 'B', 'A');
-    old
-      .prepare('INSERT INTO samples VALUES(?,?,?,?)')
-      .run(2, 'legacy', 'B', 'B');
-    old.prepare('INSERT INTO pathogens VALUES(?,?)').run('IAV', '甲流');
-    old.prepare('INSERT INTO pathogens VALUES(?,?)').run('N', '未指定');
-    old
-      .prepare('INSERT INTO results VALUES(?,?,?,?,?,?,?,?)')
-      .run(1, 1, 'IAV', 'positive', 25, '25', '甲流', 2);
-    old
-      .prepare('INSERT INTO results VALUES(?,?,?,?,?,?,?,?)')
-      .run(2, 2, 'N', 'negative', null, '阴性', '', 3);
+    if (!emptyLegacy) {
+      old
+        .prepare('INSERT INTO imports VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+        .run(
+          'legacy',
+          '旧文件.xlsx',
+          'hash',
+          'old-place',
+          '2023-09-01',
+          '2023-09-02T00:00:00.000Z',
+          'published',
+          'Sheet1',
+          '[]',
+          JSON.stringify(payload),
+          legacyDemo ? 1 : 0,
+        );
+      old
+        .prepare('INSERT INTO samples VALUES(?,?,?,?)')
+        .run(1, 'legacy', 'B', 'A');
+      old
+        .prepare('INSERT INTO samples VALUES(?,?,?,?)')
+        .run(2, 'legacy', 'B', 'B');
+      old.prepare('INSERT INTO pathogens VALUES(?,?)').run('IAV', '甲流');
+      old.prepare('INSERT INTO pathogens VALUES(?,?)').run('N', '未指定');
+      old
+        .prepare('INSERT INTO results VALUES(?,?,?,?,?,?,?,?)')
+        .run(1, 1, 'IAV', 'positive', 25, '25', '甲流', 2);
+      old
+        .prepare('INSERT INTO results VALUES(?,?,?,?,?,?,?,?)')
+        .run(2, 2, 'N', 'negative', null, '阴性', '', 3);
+    }
     old.close();
-    if (expiredPreview) {
+    if (expiredPreview || readyPreview || publishedLegacy) {
       const { openStore, stage } =
         await import('../../scripts/legacy/sqlite-store.mjs');
       const source = openStore(dir);
-      stage(source, {
-        id: 'expired-preview',
-        fileName: '过期待确认.xlsx',
-        hash: 'hash',
-        location: {
-          province_code: '420000',
-          province: '湖北省',
-          city_code: '420100',
-          city: '武汉市',
-        },
-        date: '2026-09-01',
-        user: {
-          id: 'historical-admin',
-          username: 'historical',
-          display_name: '历史管理员',
-        },
-        payload: {
-          sheet: 'Sheet1',
-          records: [
-            {
-              batch: 'B',
-              sample: 'S',
-              code: 'IAV',
-              raw: '25',
-              name: '甲流',
-              status: 'positive',
-              ct: 25,
-              sourceRow: 2,
-            },
-          ],
-          names: { IAV: '甲流' },
-          warnings: [],
-          summary: {
-            rows: 1,
-            samples: 1,
-            tested: 1,
-            positive: 1,
-            excluded: 0,
-            rate: 1,
+      if (publishedLegacy)
+        source
+          .prepare(
+            "UPDATE imports SET status='published',submitted_by=?,submitted_name=?,submitted_username=?,withdrawn_at=NULL,withdrawn_name=NULL WHERE id='legacy'",
+          )
+          .run('historical-admin', '历史管理员', 'historical');
+      const previewId = expiredPreview
+        ? 'expired-preview'
+        : readyPreview
+          ? 'ready-preview'
+          : '';
+      if (previewId)
+        stage(source, {
+          id: previewId,
+          fileName: '过期待确认.xlsx',
+          hash: 'hash',
+          location: {
+            province_code: '420000',
+            province: '湖北省',
+            city_code: '420100',
+            city: '武汉市',
           },
-        },
-      });
-      source
-        .prepare('UPDATE imports SET created_at=? WHERE id=?')
-        .run(
-          new Date(Date.now() - 10 * 86400000).toISOString(),
-          'expired-preview',
-        );
+          date: '2026-09-01',
+          user: {
+            id: 'historical-admin',
+            username: 'historical',
+            display_name: '历史管理员',
+          },
+          payload: {
+            sheet: 'Sheet1',
+            records: [
+              {
+                batch: 'B',
+                sample: 'S',
+                code: 'IAV',
+                raw: '25',
+                name: '甲流',
+                status: 'positive',
+                ct: 25,
+                sourceRow: 2,
+              },
+            ],
+            names: { IAV: '甲流' },
+            warnings: [],
+            summary: {
+              rows: 1,
+              samples: 1,
+              tested: 1,
+              positive: 1,
+              excluded: 0,
+              rate: 1,
+            },
+          },
+        });
+      if (expiredPreview)
+        source
+          .prepare('UPDATE imports SET created_at=? WHERE id=?')
+          .run(
+            new Date(Date.now() - 10 * 86400000).toISOString(),
+            'expired-preview',
+          );
       source.close();
     }
     await mkdir(join(dir, 'uploads'));

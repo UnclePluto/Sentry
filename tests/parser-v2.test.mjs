@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseWorkbook } from '../server/parser.mjs';
 import { dualWorkbook } from './helpers/workbook-v2.mjs';
 
-test('N 保留为样本，多种检出只计一个阳性样本', async () => {
+void test('N 保留为样本，多种检出只计一个阳性样本', async () => {
   const payload = await parseWorkbook(
     await dualWorkbook(
       [
@@ -31,7 +31,7 @@ test('N 保留为样本，多种检出只计一个阳性样本', async () => {
   assert.equal(payload.summary.rate, 0.5);
 });
 
-test('只有 N 的文件可形成待确认数据', async () => {
+void test('只有 N 的文件可形成待确认数据', async () => {
   const payload = await parseWorkbook(
     await dualWorkbook([['B', 'S', 'N', '', '']], ['IAV']),
   );
@@ -40,7 +40,7 @@ test('只有 N 的文件可形成待确认数据', async () => {
   assert.equal(payload.detections.length, 0);
 });
 
-test('双 Sheet 校验拒绝样本冲突和不在检测范围的结果', async () => {
+void test('双 Sheet 校验拒绝样本冲突和不在检测范围的结果', async () => {
   for (const [rows, codes, message] of [
     [
       [
@@ -79,7 +79,7 @@ test('双 Sheet 校验拒绝样本冲突和不在检测范围的结果', async (
     );
 });
 
-test('缺少任一必需工作表或列时给出明确错误', async () => {
+void test('缺少任一必需工作表或列时给出明确错误', async () => {
   await assert.rejects(
     parseWorkbook(
       await dualWorkbook([['B', 'S', 'N', '', '']], ['IAV'], {
@@ -98,7 +98,7 @@ test('缺少任一必需工作表或列时给出明确错误', async () => {
   );
 });
 
-test('文本前导零保留，数值与同文本标识会触发重复', async () => {
+void test('文本前导零保留，数值与同文本标识会触发重复', async () => {
   const payload = await parseWorkbook(
     await dualWorkbook([['B', '001', 'N', '', '']], ['IAV']),
   );

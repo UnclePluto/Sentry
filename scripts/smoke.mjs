@@ -18,6 +18,33 @@ for (const path of [
   }
   console.log(`${path} 200`);
 }
+const demo = await (
+  await fetch(origin + '/api/dashboard?demo=1')
+).json();
+assert.ok(Array.isArray(demo.pathogenOptions));
+assert.ok(demo.pathogenOptions.length >= 2, '演示数据应至少包含两个病原体选项');
+const multiQuery = new URLSearchParams({ demo: '1', region: '100000' });
+for (const pathogen of demo.pathogenOptions.slice(0, 2))
+  multiQuery.append('pathogen', pathogen.code);
+const multiResponse = await fetch(
+  origin + '/api/dashboard?' + multiQuery.toString(),
+);
+assert.equal(multiResponse.status, 200);
+const multi = await multiResponse.json();
+assert.ok(multi.metrics.positive <= multi.metrics.samples);
+assert.equal(
+  multi.metrics.notDetected,
+  multi.metrics.samples - multi.metrics.positive,
+);
+assert.ok(Number.isInteger(multi.metrics.regions));
+assert.deepEqual(
+  multi.selectedPathogens,
+  demo.pathogenOptions
+    .slice(0, 2)
+    .map((pathogen) => pathogen.code)
+    .sort(),
+);
+console.log('重复病原体参数与样本统计字段检查通过');
 const adminOrigin = process.env.SENTRY_ADMIN_ORIGIN || 'http://127.0.0.1:3002';
 assert.equal(
   (await fetch(origin + '/upload')).status,

@@ -7,7 +7,8 @@ import {
   openStore as upgradeSnapshot,
   dashboard as legacyDashboard,
 } from '../legacy/sqlite-store.mjs';
-import { rebuildContribution, dashboard } from '../../server/store.mjs';
+import { rebuildContribution } from '../../server/store.mjs';
+import { readLegacyDashboard } from '../../server/legacy-dashboard.mjs';
 const args = Object.fromEntries(
   process.argv
     .slice(2)
@@ -120,11 +121,15 @@ try {
           Date.now() - new Date(row.created_at).getTime() < 7 * 86400000
         ) {
           await tx.query(
-            "UPDATE imports SET expires_at=created_at+interval '7 days' WHERE id=$1",
+            "UPDATE imports SET status='cancelled',expires_at=NULL WHERE id=$1",
             [row.id],
           );
           await tx.query(
-            "INSERT INTO jobs(id,import_id,owner_id,status) VALUES($1,$1,$2,'ready')",
+            `INSERT INTO jobs(
+               id,import_id,owner_id,status,error,error_code,retryable
+             ) VALUES(
+               $1,$1,$2,'cancelled','旧格式预览请重新上传','legacy_preview',false
+             )`,
             [row.id, row.submitted_by],
           );
         } else {
@@ -176,7 +181,10 @@ try {
         : value;
   for (const filter of filters) {
     const before = legacyDashboard(source, filter),
-      after = await dashboard(db, filter);
+      after = await db.transaction(
+        (tx) => readLegacyDashboard(tx, filter),
+        { readOnly: true },
+      );
     for (const key of [
       'metrics',
       'extent',
