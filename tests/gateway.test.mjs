@@ -45,6 +45,8 @@ test('展示入口只读且没有管理页面，管理入口保留上传请求',
       '/api/imports/download?id=x',
       '/api/records',
       '/api/institutions',
+      '/templates/detection-import-template.xlsx',
+      '/admin/templates/detection-import-template.xlsx',
     ]) {
       assert.equal((await fetch(displayUrl + path)).status, 404, path);
     }
@@ -71,7 +73,21 @@ test('展示入口只读且没有管理页面，管理入口保留上传请求',
       'page:/assets/main.js',
     );
     const redirect = await fetch(adminUrl, { redirect: 'manual' });
+    assert.equal(
+      await (
+        await fetch(adminUrl + '/templates/detection-import-template.xlsx')
+      ).text(),
+      'page:/templates/detection-import-template.xlsx',
+    );
     assert.equal(redirect.headers.get('location'), '/admin/upload');
+    assert.equal(
+      await (
+        await fetch(
+          adminUrl + '/admin/templates/detection-import-template.xlsx',
+        )
+      ).text(),
+      'page:/templates/detection-import-template.xlsx',
+    );
     assert.equal(
       await (await fetch(adminUrl + '/upload')).text(),
       'page:/upload',

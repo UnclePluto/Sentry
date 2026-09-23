@@ -3,6 +3,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { AdminHeader, useAdmin } from '@/components/admin-session';
 import {
   Upload,
+  Download,
   FileSpreadsheet,
   Check,
   ArrowRight,
@@ -12,7 +13,7 @@ import {
   Loader2,
   Info,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -541,6 +542,18 @@ export default function UploadPage() {
                   <div>
                     <h2>上传检测 Excel</h2>
                     <p>Sheet1 为样本结果，Sheet2 为本次检测病原体范围。</p>
+                    <a
+                      href="/admin/templates/detection-import-template.xlsx"
+                      download="检测数据导入模板.xlsx"
+                      className={buttonVariants({
+                        variant: 'outline',
+                        className: 'mt-3',
+                      })}
+                    >
+                      <Download aria-hidden="true" />
+                      下载 Excel 模板
+                    </a>
+                    <p className="mt-2">模板仅含表头，填写规则见表头批注。</p>
                   </div>
                 </div>
                 <div

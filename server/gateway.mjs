@@ -65,10 +65,13 @@ export function createGateway({
       mode === 'dashboard'
         ? path === '/'
         : ['/upload', '/accounts', '/login'].includes(path);
+    const isTemplate =
+      mode === 'admin' && path === '/templates/detection-import-template.xlsx';
     const validAsset =
-      assets.test(path) &&
-      (development ||
-        /^\/(?:_next\/|assets\/|maps\/|favicon\.svg$)/.test(path));
+      isTemplate ||
+      (assets.test(path) &&
+        (development ||
+          /^\/(?:_next\/|assets\/|maps\/|favicon\.svg$)/.test(path)));
     if (!isApi && !validPage && !validAsset) {
       res
         .writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -112,7 +115,10 @@ export function createGateway({
         hostname: target.hostname,
         port: target.port,
         method: req.method,
-        path: isApi && adminPrefix ? req.url.replace(/^\/admin/, '') : req.url,
+        path:
+          (isApi || isTemplate) && adminPrefix
+            ? req.url.replace(/^\/admin/, '')
+            : req.url,
         headers: { ...cleanHeaders(req.headers), host: target.host },
       },
       (response) => {
