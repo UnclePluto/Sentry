@@ -252,6 +252,7 @@ export default function UploadPage() {
       );
       watchJob(result.id);
       setJob(null);
+      setTab('tasks');
       await loadTasks();
       setFile(null);
       if (input.current) input.current.value = '';
@@ -320,6 +321,10 @@ export default function UploadPage() {
               <Upload />
               上传结果
             </TabsTrigger>
+            <TabsTrigger value="tasks">
+              <FileSpreadsheet />
+              上传任务
+            </TabsTrigger>
             <TabsTrigger value="history">
               <History />
               {user?.role === 'superadmin' ? '全部提交记录' : '我的提交记录'}
@@ -337,122 +342,6 @@ export default function UploadPage() {
             </output>
           )}
           <TabsContent value="upload">
-            <section className="admin-table-card" aria-label="上传任务">
-              <div className="table-toolbar">
-                <div>
-                  <h2>上传任务</h2>
-                  <p>
-                    关闭页面后仍会继续处理，可在这里查看结果。预览保留 7 天。
-                  </p>
-                </div>
-              </div>
-              {job && (
-                <output>
-                  当前任务：{job.phase === 'commit' ? '入库' : '解析'} ·{' '}
-                  {jobLabels[job.status] || job.status}
-                </output>
-              )}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>文件／批次</TableHead>
-                    <TableHead>提交人</TableHead>
-                    <TableHead>进度</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tasks.map((t) => (
-                    <TableRow key={t.id}>
-                      <TableCell>
-                        {t.file_name}
-                        <small className="code-note">{t.id}</small>
-                      </TableCell>
-                      <TableCell>{t.submitted_name}</TableCell>
-                      <TableCell>
-                        {t.phase === 'commit' ? '入库' : '解析'} ·{' '}
-                        {jobLabels[t.job_status] || t.job_status}
-                        {t.error && (
-                          <p className="whitespace-pre-line">{t.error}</p>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setError('');
-                            watchJob(t.id);
-                          }}
-                        >
-                          查看结果
-                        </Button>
-                        {t.phase === 'parse' &&
-                          ['queued', 'running', 'ready', 'failed'].includes(
-                            t.job_status,
-                          ) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                try {
-                                  await post('/jobs/cancel', { id: t.id });
-                                  if (jobId === t.id) {
-                                    setJobId('');
-                                    setJob(null);
-                                    setPreview(null);
-                                  }
-                                  await loadTasks();
-                                } catch (e) {
-                                  setError(errorMessage(e));
-                                }
-                              }}
-                            >
-                              取消
-                            </Button>
-                          )}
-                        {t.job_status === 'failed' && t.retryable && (
-                          <Button
-                            size="sm"
-                            onClick={async () => {
-                              try {
-                                await post('/jobs/retry', { id: t.id });
-                                watchJob(t.id);
-                                await loadTasks();
-                              } catch (e) {
-                                setError(errorMessage(e));
-                              }
-                            }}
-                          >
-                            重试入库
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {!tasks.length && <p className="admin-empty">暂无待处理任务</p>}
-              <div className="table-toolbar">
-                <Button
-                  variant="outline"
-                  disabled={taskPage === 1}
-                  onClick={() => setTaskPage((p) => p - 1)}
-                >
-                  上一页
-                </Button>
-                <span>
-                  第 {taskPage} 页 · 共 {taskTotal} 条
-                </span>
-                <Button
-                  variant="outline"
-                  disabled={taskPage * 20 >= taskTotal}
-                  onClick={() => setTaskPage((p) => p + 1)}
-                >
-                  下一页
-                </Button>
-              </div>
-            </section>
             <div className="upload-grid">
               <section className="upload-card">
                 <div className="step-header">
@@ -648,6 +537,124 @@ export default function UploadPage() {
                 </p>
               </aside>
             </div>
+          </TabsContent>
+          <TabsContent value="tasks">
+            <section className="admin-table-card" aria-label="上传任务">
+              <div className="table-toolbar">
+                <div>
+                  <h2>上传任务</h2>
+                  <p>
+                    关闭页面后仍会继续处理，可在这里查看结果。预览保留 7 天。
+                  </p>
+                </div>
+              </div>
+              {job && (
+                <output>
+                  当前任务：{job.phase === 'commit' ? '入库' : '解析'} ·{' '}
+                  {jobLabels[job.status] || job.status}
+                </output>
+              )}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>文件／批次</TableHead>
+                    <TableHead>提交人</TableHead>
+                    <TableHead>进度</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell>
+                        {t.file_name}
+                        <small className="code-note">{t.id}</small>
+                      </TableCell>
+                      <TableCell>{t.submitted_name}</TableCell>
+                      <TableCell>
+                        {t.phase === 'commit' ? '入库' : '解析'} ·{' '}
+                        {jobLabels[t.job_status] || t.job_status}
+                        {t.error && (
+                          <p className="whitespace-pre-line">{t.error}</p>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setError('');
+                            watchJob(t.id);
+                          }}
+                        >
+                          查看结果
+                        </Button>
+                        {t.phase === 'parse' &&
+                          ['queued', 'running', 'ready', 'failed'].includes(
+                            t.job_status,
+                          ) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  await post('/jobs/cancel', { id: t.id });
+                                  if (jobId === t.id) {
+                                    setJobId('');
+                                    setJob(null);
+                                    setPreview(null);
+                                  }
+                                  await loadTasks();
+                                } catch (e) {
+                                  setError(errorMessage(e));
+                                }
+                              }}
+                            >
+                              取消
+                            </Button>
+                          )}
+                        {t.job_status === 'failed' && t.retryable && (
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await post('/jobs/retry', { id: t.id });
+                                watchJob(t.id);
+                                await loadTasks();
+                              } catch (e) {
+                                setError(errorMessage(e));
+                              }
+                            }}
+                          >
+                            重试入库
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {!tasks.length && <p className="admin-empty">暂无待处理任务</p>}
+              <div className="table-toolbar">
+                <Button
+                  variant="outline"
+                  disabled={taskPage === 1}
+                  onClick={() => setTaskPage((p) => p - 1)}
+                >
+                  上一页
+                </Button>
+                <span>
+                  第 {taskPage} 页 · 共 {taskTotal} 条
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={taskPage * 20 >= taskTotal}
+                  onClick={() => setTaskPage((p) => p + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </section>
             {preview && (
               <section className="preview-card">
                 <div className="preview-heading">
